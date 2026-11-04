@@ -42,7 +42,7 @@ Positioning against named alternatives has not been decided.
 
 ## Capabilities and Constraints
 
-**Terminology:** classroom, master, co-master, member, phase, step, dependency, soft lock, suggestion, shared library, private library, "Since you were away", growth map, contribution record, Flowspace (the node graph page), Kanvas (a person's private canvas), Ofy (the AI that asks, shows and does).
+**Terminology:** classroom, master, co-master, member, phase, step, dependency, soft lock, suggestion, shared library, private library, "Since you were away", growth map, contribution record, Flowspace (the node graph page), Kanvas (a person's private canvas), Ofy (the AI that asks, shows and does), mock test (a mock exam or mock interview for one phase).
 
 **In scope:**
 
@@ -53,6 +53,8 @@ Positioning against named alternatives has not been decided.
 - Steps: any step can be worked on in any order. Starting one with an unfinished dependency warns rather than blocks. Each step shows its description, checklist, skills, comments and study materials (files, links, videos, notes). Tapping a step listed under Needs or Unblocks always goes to that step.
 - Collaboration: comments, suggestions the owner accepts or dismisses, handing your own step to any member, notifications.
 - Tracking: dashboard, active-time tracking with a 5-minute idle timeout, planned vs actual hours including overtime, contribution record, growth map, PDF report export.
+- Mock tests (build phase 4): each phase can end with a mock exam or mock interview generated from that phase's content, for any field. It's offered once a phase's steps are done, can be taken early or skipped, and never blocks the next phase. Results give a score, feedback on each answer and links to the steps worth revising. Each person sets their own difficulty (Easy, Medium or Hard), and the master can set one level for everyone until they clear it. Results are private by default, and each person can turn on sharing so everyone in the group can see theirs.
+- Practice links (build phase 3): a Practice section in every classroom, reachable at any time, links to mock interview sites, question banks and coding practice. The AI suggests links and anyone can add their own. Octria stores no copied questions and has no code runner.
 - Kanvas (build phase 3): a private infinite canvas per user with freehand and stylus drawing, sticky notes, text, checklists, diagrams with snapping connectors, and image, PDF, link and video cards. Boards live in folders with search, undo and redo, autosave and version history. An idea can become a classroom, a board can be pinned to a step, and boards can be shared read-only or editable. AI helpers tidy, clean up and summarise. Board data is JSON in Firestore (`users/{uid}/kanvas/{boardId}`), files go in the user's private Drive, and it uses the same canvas engine as Flowspace.
 - Ofy, the AI (build phase 4): a floating mic on every screen with on-device speech to text. Ask answers questions, Show highlights a node or button with a pointer, Guide walks through multi-step cards, and Do performs actions after an Approve or Deny card, with an "always allow" option. Screens expose named addressable elements (`step:12`, `button:add-dependency`), Gemini returns JSON, and actions pass through the same Firestore rules. It can annotate a screenshot, or a shared screen on web and desktop. It does not click or type in other apps; a separate desktop agent is possible after launch. Free-tier limits apply.
 
