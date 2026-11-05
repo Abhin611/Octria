@@ -13,8 +13,13 @@ class Member {
   final String id;
   final String name;
 
-  String get initials =>
-      name.split(' ').map((w) => w[0]).take(2).join().toUpperCase();
+  String get initials => name
+      .split(' ')
+      .where((w) => w.isNotEmpty)
+      .map((w) => w[0])
+      .take(2)
+      .join()
+      .toUpperCase();
 }
 
 class Phase {
@@ -65,6 +70,7 @@ class PlanStep {
     this.newSuggestions = 0,
     this.newComments = 0,
     this.changedSinceVisit = false,
+    this.order = 0,
   });
 
   final String id;
@@ -85,6 +91,9 @@ class PlanStep {
   final int newComments;
   final bool changedSinceVisit;
 
+  /// Where the step sits among its neighbours when the plan is loaded.
+  final int order;
+
   int get badgeCount =>
       newSuggestions + newComments + (changedSinceVisit ? 1 : 0);
 
@@ -101,30 +110,55 @@ class PlanStep {
   PlanStep copyWith({
     String? phaseId,
     String? ownerId,
+    String? title,
+    String? description,
     StepStatus? status,
     List<String>? dependsOn,
+    double? estimateHours,
+    DateTime? start,
+    DateTime? due,
     List<ChecklistItem>? checklist,
+    List<String>? skills,
+    int? newSuggestions,
+    int? newComments,
+    bool? changedSinceVisit,
   }) {
     return PlanStep(
       id: id,
       phaseId: phaseId ?? this.phaseId,
       ownerId: ownerId ?? this.ownerId,
-      title: title,
-      description: description,
+      title: title ?? this.title,
+      description: description ?? this.description,
       status: status ?? this.status,
       dependsOn: dependsOn ?? this.dependsOn,
-      estimateHours: estimateHours,
-      start: start,
-      due: due,
+      estimateHours: estimateHours ?? this.estimateHours,
+      start: start ?? this.start,
+      due: due ?? this.due,
       checklist: checklist ?? this.checklist,
       resources: resources,
-      skills: skills,
+      skills: skills ?? this.skills,
       comments: comments,
-      newSuggestions: newSuggestions,
-      newComments: newComments,
-      changedSinceVisit: changedSinceVisit,
+      newSuggestions: newSuggestions ?? this.newSuggestions,
+      newComments: newComments ?? this.newComments,
+      changedSinceVisit: changedSinceVisit ?? this.changedSinceVisit,
+      order: order,
     );
   }
+
+  /// Whether two versions of a step would be stored the same.
+  bool storedSameAs(PlanStep o) =>
+      phaseId == o.phaseId &&
+      ownerId == o.ownerId &&
+      title == o.title &&
+      description == o.description &&
+      status == o.status &&
+      estimateHours == o.estimateHours &&
+      start == o.start &&
+      due == o.due &&
+      order == o.order &&
+      _sameList(dependsOn, o.dependsOn) &&
+      _sameList(skills, o.skills) &&
+      _sameChecklist(checklist, o.checklist);
 }
 
 class Plan {
@@ -286,4 +320,20 @@ class Plan {
     return inPhase.where((s) => s.status == StepStatus.done).length /
         inPhase.length;
   }
+}
+
+bool _sameList(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+bool _sameChecklist(List<ChecklistItem> a, List<ChecklistItem> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i].title != b[i].title || a[i].done != b[i].done) return false;
+  }
+  return true;
 }

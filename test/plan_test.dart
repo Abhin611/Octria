@@ -76,6 +76,29 @@ void main() {
       }
     });
 
+    test('everyone\'s steps run along the flow, in both directions', () {
+      final plan = stressPlan();
+      final across = computeLayout(plan);
+      final down = computeLayout(
+        plan,
+        options: const LayoutOptions(direction: GraphDirection.topToBottom),
+      );
+      for (final member in plan.members) {
+        final route = plan.routeFor(member.id);
+        for (var i = 1; i < route.length; i++) {
+          if (route[i].phaseId != route[i - 1].phaseId) continue;
+          expect(
+            across.positions[route[i].id]!.dx,
+            greaterThan(across.positions[route[i - 1].id]!.dx),
+          );
+          expect(
+            down.positions[route[i].id]!.dy,
+            greaterThan(down.positions[route[i - 1].id]!.dy),
+          );
+        }
+      }
+    });
+
     test('arrows into a step get their own entry points and tracks', () {
       final plan = campusEventsPlan();
       final layout = computeLayout(plan);

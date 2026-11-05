@@ -19,6 +19,7 @@ class Palette {
     required this.onRoute,
     required this.done,
     required this.doing,
+    required this.review,
     required this.waiting,
     required this.blocked,
     required this.terrainA,
@@ -36,6 +37,12 @@ class Palette {
     required this.ambientA,
     required this.ambientB,
     required this.ambientC,
+    required this.panel,
+    required this.accent,
+    required this.accentViolet,
+    required this.accentWarm,
+    required this.accentTeal,
+    required this.orb,
   });
 
   final Brightness brightness;
@@ -51,6 +58,7 @@ class Palette {
   final Color onRoute;
   final Color done;
   final Color doing;
+  final Color review;
   final Color waiting;
   final Color blocked;
   final Color terrainA;
@@ -77,70 +85,97 @@ class Palette {
   final Color ambientB;
   final Color ambientC;
 
+  /// A solid card on the home pages, with a fine edge rather than glass.
+  final Color panel;
+
+  /// Colours for telling kinds of things apart. They never mean status, and
+  /// magenta stays the viewer's own.
+  final Color accent;
+  final Color accentViolet;
+  final Color accentWarm;
+  final Color accentTeal;
+
+  /// The moving globe behind everything. Only ever used there.
+  final Color orb;
+
   static const light = Palette(
     brightness: Brightness.light,
-    ground: Color(0xFFF2F5FA),
+    ground: Color(0xFFFBF7F2),
     raised: Color(0xFFFFFFFF),
-    hairline: Color(0x1F1C2744),
-    outline: Color(0xFFAAB2C4),
-    ink: Color(0xFF1B1F27),
-    inkSoft: Color(0xFF474E5C),
-    inkFaint: Color(0xFF5C6372),
-    control: Color(0x141C2744),
+    hairline: Color(0x1A2B1A0A),
+    outline: Color(0xFFC4B8AC),
+    ink: Color(0xFF1A1410),
+    inkSoft: Color(0xFF4F453D),
+    inkFaint: Color(0xFF665B52),
+    control: Color(0x122B1A0A),
     route: Color(0xFFC2187A),
     onRoute: Color(0xFFFFFFFF),
-    done: Color(0xFF1F7F4C),
-    doing: Color(0xFF1A67AD),
-    waiting: Color(0xFF7E8494),
-    blocked: Color(0xFFCE2F26),
-    terrainA: Color(0x38FFFFFF),
+    done: Color(0xFF047857),
+    doing: Color(0xFF4338CA),
+    review: Color(0xFFB45309),
+    waiting: Color(0xFF7F766E),
+    blocked: Color(0xFFDC2626),
+    terrainA: Color(0x3DFFFFFF),
     terrainB: Color(0x1FFFFFFF),
-    shadow: Color(0x261B2A4A),
-    glassThin: Color(0x73FFFFFF),
-    glassRegular: Color(0x94FFFFFF),
-    glassThick: Color(0xD1FFFFFF),
-    rimTop: Color(0xE6FFFFFF),
-    rimBottom: Color(0x40FFFFFF),
-    sheen: Color(0x33FFFFFF),
-    nodeTop: Color(0xE6FFFFFF),
-    nodeBottom: Color(0xB8FFFFFF),
-    nodeRim: Color(0x331C2744),
-    ambientA: Color(0xFFBFD9FF),
-    ambientB: Color(0xFFFFD6EC),
-    ambientC: Color(0xFFCFF3E6),
+    shadow: Color(0x1F3B2410),
+    glassThin: Color(0x8CFFFFFF),
+    glassRegular: Color(0xB3FFFFFF),
+    glassThick: Color(0xE6FFFFFF),
+    rimTop: Color(0xF2FFFFFF),
+    rimBottom: Color(0x262B1A0A),
+    sheen: Color(0x26FFFFFF),
+    nodeTop: Color(0xF5FFFFFF),
+    nodeBottom: Color(0xDEFFFFFF),
+    nodeRim: Color(0x262B1A0A),
+    ambientA: Color(0xFFFFE8D4),
+    ambientB: Color(0xFFFFF2E4),
+    ambientC: Color(0xFFFFF6EC),
+    panel: Color(0xFFFFFFFF),
+    accent: Color(0xFF4F46E5),
+    accentViolet: Color(0xFF7C3AED),
+    accentWarm: Color(0xFFB45309),
+    accentTeal: Color(0xFF0F766E),
+    orb: Color(0xFFEA7A1E),
   );
 
   static const dark = Palette(
     brightness: Brightness.dark,
-    ground: Color(0xFF0E1116),
-    raised: Color(0xFF23272F),
+    ground: Color(0xFF0E0B09),
+    raised: Color(0xFF1F1A16),
     hairline: Color(0x1FFFFFFF),
-    outline: Color(0xFF4C5462),
-    ink: Color(0xFFF2F4F8),
-    inkSoft: Color(0xFFC3C8D2),
-    inkFaint: Color(0xFFA2A8B4),
-    control: Color(0x1FFFFFFF),
+    outline: Color(0xFF4E463F),
+    ink: Color(0xFFF7F3EF),
+    inkSoft: Color(0xFFC9C0B8),
+    inkFaint: Color(0xFFA89E95),
+    control: Color(0x1CFFFFFF),
     route: Color(0xFFF2589F),
     onRoute: Color(0xFF2A0518),
-    done: Color(0xFF55BD84),
-    doing: Color(0xFF6AB0EA),
-    waiting: Color(0xFF8B919E),
-    blocked: Color(0xFFF2675D),
-    terrainA: Color(0x0DFFFFFF),
-    terrainB: Color(0x08FFFFFF),
-    shadow: Color(0x73000000),
-    glassThin: Color(0x6B1C2028),
-    glassRegular: Color(0x8C1C2028),
-    glassThick: Color(0xD61C2028),
-    rimTop: Color(0x47FFFFFF),
-    rimBottom: Color(0x0FFFFFFF),
-    sheen: Color(0x12FFFFFF),
-    nodeTop: Color(0xD9333945),
-    nodeBottom: Color(0xB8272C36),
+    done: Color(0xFF34D399),
+    doing: Color(0xFF8B8CFF),
+    review: Color(0xFFFFC53D),
+    waiting: Color(0xFF8F867E),
+    blocked: Color(0xFFF87171),
+    terrainA: Color(0x0AFFFFFF),
+    terrainB: Color(0x06FFFFFF),
+    shadow: Color(0x80000000),
+    glassThin: Color(0x80181310),
+    glassRegular: Color(0xA6181310),
+    glassThick: Color(0xE0181310),
+    rimTop: Color(0x33FFFFFF),
+    rimBottom: Color(0x12FFFFFF),
+    sheen: Color(0x0DFFFFFF),
+    nodeTop: Color(0xF0292320),
+    nodeBottom: Color(0xE01D1815),
     nodeRim: Color(0x1FFFFFFF),
-    ambientA: Color(0xFF1B2F55),
-    ambientB: Color(0xFF3A1C46),
-    ambientC: Color(0xFF0F3A38),
+    ambientA: Color(0xFF2A1406),
+    ambientB: Color(0xFF1E0F05),
+    ambientC: Color(0xFF170B04),
+    panel: Color(0xFF17120F),
+    accent: Color(0xFF8B8CFF),
+    accentViolet: Color(0xFFB794FF),
+    accentWarm: Color(0xFFFFC53D),
+    accentTeal: Color(0xFF2DD4BF),
+    orb: Color(0xFFFF8C2E),
   );
 
   static Palette of(BuildContext context) =>
@@ -148,7 +183,7 @@ class Palette {
 
   Color standing(Standing s) => switch (s) {
     Standing.done => done,
-    Standing.review => doing,
+    Standing.review => review,
     Standing.doing => doing,
     Standing.ready => ink,
     Standing.waiting => waiting,
@@ -156,9 +191,19 @@ class Palette {
   };
 }
 
+/// The short form that fits on a step in the graph.
+String standingWord(Standing s) => switch (s) {
+  Standing.done => 'Done',
+  Standing.review => 'Waiting for approval',
+  Standing.doing => 'In progress',
+  Standing.ready => 'Ready',
+  Standing.waiting => 'Waiting',
+  Standing.blocked => 'Blocked',
+};
+
 String standingLabel(Standing s) => switch (s) {
   Standing.done => 'Done',
-  Standing.review => 'In review',
+  Standing.review => 'Waiting for approval',
   Standing.doing => 'In progress',
   Standing.ready => 'Ready to start',
   Standing.waiting => 'Waiting on another step',
@@ -183,6 +228,14 @@ const _months = [
 
 String shortDate(DateTime d) =>
     '${_weekdays[d.weekday - 1]} ${d.day} ${_months[d.month - 1]}';
+
+/// A moment to the second, in the person's own time: "Thu 5 Nov, 9:21:05 pm".
+String exactTime(DateTime d) {
+  final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${shortDate(d)}, $hour:${two(d.minute)}:${two(d.second)} '
+      '${d.hour < 12 ? 'am' : 'pm'}';
+}
 
 String monthDay(DateTime d) => '${d.day} ${_months[d.month - 1]}';
 

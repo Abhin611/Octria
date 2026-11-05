@@ -45,7 +45,20 @@ class MapKey extends StatelessWidget {
                   ..strokeCap = StrokeCap.round,
               );
             }),
-            'Your route',
+            'Your route, where one step needs the next',
+          ),
+          row(
+            line((c, s) {
+              final y = s.height / 2;
+              final dash = Paint()
+                ..color = p.route
+                ..strokeWidth = 3.2
+                ..strokeCap = StrokeCap.round;
+              for (var x = 2.0; x < s.width; x += 12) {
+                c.drawLine(Offset(x, y), Offset(x + 4, y), dash);
+              }
+            }),
+            'Order of work, in your colour for you: an order, not a link',
           ),
           row(
             line((c, s) {
@@ -67,14 +80,20 @@ class MapKey extends StatelessWidget {
             }),
             'Critical path: decides the deadline',
           ),
-          row(const StandingMark(Standing.ready), 'Ready to start'),
-          row(const StandingMark(Standing.doing), 'In progress'),
-          row(const StandingMark(Standing.review), 'In review'),
-          row(const StandingMark(Standing.done), 'Done'),
-          row(const StandingMark(Standing.waiting), 'Waiting on another step'),
+          row(const StatusSwatch(Standing.ready), 'Ready to start: grey'),
+          row(const StatusSwatch(Standing.doing), 'In progress: blue'),
           row(
-            const StandingMark(Standing.blocked),
-            'Blocked by an overdue step',
+            const StatusSwatch(Standing.review),
+            'Waiting for approval: amber',
+          ),
+          row(const StatusSwatch(Standing.done), 'Done: green'),
+          row(
+            const StatusSwatch(Standing.waiting),
+            'Waiting on another step: plain and dimmed',
+          ),
+          row(
+            const StatusSwatch(Standing.blocked),
+            'Blocked by an overdue step: red',
           ),
         ],
       ),

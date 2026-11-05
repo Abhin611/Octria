@@ -246,7 +246,15 @@ class GraphScene {
     required this.linkTo,
     required this.linkTargetId,
     required this.texts,
+    this.reveal = const AlwaysStoppedAnimation(1),
+    this.flow = const AlwaysStoppedAnimation(0),
   });
+
+  /// From 0 to 1 as the graph first arrives.
+  final Animation<double> reveal;
+
+  /// Loops from 0 to 1, moving work along the arrows.
+  final Animation<double> flow;
 
   final PlanController controller;
   final GraphCamera camera;
@@ -324,6 +332,46 @@ Color _fade(Color c, double a) {
   return c.withValues(alpha: c.a * q);
 }
 
+/// How a step shows its status across its whole rectangle: a fill of its colour,
+/// a little brighter at the top, like the rest of the glass.
+@immutable
+class StatusFill {
+  const StatusFill(this.top, this.bottom);
+
+  final Color top;
+  final Color bottom;
+
+  Shader shader(Rect rect, double alpha) => ui.Gradient.linear(
+    rect.topCenter,
+    rect.bottomCenter,
+    [_fade(top, alpha), _fade(bottom, alpha)],
+  );
+}
+
+/// The fill for a status, or null for a step that can't start yet, which stays
+/// plain. Mixed from an opaque base, so words on top keep their contrast.
+StatusFill? statusFill(Palette p, Standing standing) {
+  final dark = p.brightness == Brightness.dark;
+  final base = dark ? const Color(0xFF1D1815) : const Color(0xFFFFFFFF);
+  StatusFill mix(Color colour, {bool quiet = false}) {
+    final top = quiet ? (dark ? 0.2 : 0.14) : (dark ? 0.32 : 0.5);
+    final bottom = quiet ? (dark ? 0.14 : 0.1) : (dark ? 0.24 : 0.4);
+    return StatusFill(
+      Color.lerp(base, colour, top)!,
+      Color.lerp(base, colour, bottom)!,
+    );
+  }
+
+  return switch (standing) {
+    Standing.done => mix(p.done),
+    Standing.doing => mix(p.doing),
+    Standing.review => mix(p.review),
+    Standing.blocked => mix(p.blocked),
+    Standing.ready => mix(p.inkFaint, quiet: true),
+    Standing.waiting => null,
+  };
+}
+
 class GraphPainter extends CustomPainter {
   GraphPainter(this.scene, {required Listenable repaint, this.headers = false})
     : super(repaint: repaint);
@@ -350,6 +398,19 @@ class GraphPainter extends CustomPainter {
     return a;
   }
 
+  /// How far a step has arrived, 0 to 1. Steps come in along the flow of the
+  /// plan, so opening a classroom reads from its beginning to its end.
+  double _arrival(String id) {
+    final reveal = scene.reveal.value;
+    if (reveal >= 1) return 1;
+    final at = scene.controller.layout.positions[id];
+    final world = scene.controller.layout.size;
+    if (at == null || world.isEmpty) return 1;
+    final along = _vertical ? at.dy / world.height : at.dx / world.width;
+    final t = ((reveal - along.clamp(0.0, 1.0) * 0.55) / 0.45).clamp(0.0, 1.0);
+    return Curves.easeOutBack.transform(t).clamp(0.0, 1.2);
+  }
+
   Offset _position(String id) {
     if (id == scene.movingId && scene.movingAt != null) return scene.movingAt!;
     return scene.controller.positions[id] ?? Offset.zero;
@@ -358,6 +419,7 @@ class GraphPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final levels = ZoomLevels(_cam.scale);
+    _flowing.clear();
     if (headers) {
       if (_vertical) {
         _paintPhaseGutter(canvas);
@@ -371,6 +433,8 @@ class GraphPainter extends CustomPainter {
     _paintTerrain(canvas, size);
     if (scene.dropCell != null) _paintDropCell(canvas);
     if (levels.steps > 0) _paintEdges(canvas, size, levels);
+    _paintFlow(canvas);
+    if (levels.steps > 0) _paintTeamOrder(canvas, levels);
     // The route holds through every zoom level: it is the point of the map.
     _paintRoute(canvas);
     _paintArrowHeads(canvas);
@@ -510,6 +574,8 @@ class GraphPainter extends CustomPainter {
         final path = line.path;
         final related = from.id == focusId || to.id == focusId;
         var alpha = levels.steps * math.min(_emphasis(from), _emphasis(to));
+        final arrived = _arrival(to.id).clamp(0.0, 1.0);
+        alpha *= arrived;
         if (edge != null) {
           // The tapped arrow is drawn on its own, above everything.
           if (edge == (from.id, to.id)) continue;
@@ -527,6 +593,16 @@ class GraphPainter extends CustomPainter {
           canvas.drawPath(path, casing);
         }
         final colour = _edgeColour(from, to).withValues(alpha: alpha * 0.9);
+        // Work moving along the arrows out of anything under way.
+        if (from.status == StepStatus.doing &&
+            to.status != StepStatus.done &&
+            _flowing.length < 16 &&
+            scene.flow.value > 0 &&
+            _cam.scale > 0.3 &&
+            alpha > 0.5 &&
+            bounds.overlaps(Offset.zero & size)) {
+          _flowing.add((path, colour));
+        }
         stroke
           ..color = colour
           ..strokeWidth = related ? width + 1 : width;
@@ -540,6 +616,27 @@ class GraphPainter extends CustomPainter {
   }
 
   final List<(Offset, Color)> _heads = [];
+  final List<(Path, Color)> _flowing = [];
+
+  /// A small light travelling along each active arrow. A few at most, so this
+  /// costs little, and it stops altogether on a phone that can't keep up.
+  void _paintFlow(Canvas canvas) {
+    if (_flowing.isEmpty) return;
+    final t = scene.flow.value;
+    final dot = Paint();
+    for (final (path, colour) in _flowing) {
+      for (final metric in path.computeMetrics()) {
+        final at = metric.getTangentForOffset(metric.length * t);
+        if (at == null) continue;
+        // Fades in and out at the ends, so it never pops.
+        final fade = (math.min(t, 1 - t) * 6).clamp(0.0, 1.0);
+        dot.color = colour.withValues(alpha: colour.a * 0.28 * fade);
+        canvas.drawCircle(at.position, 6, dot);
+        dot.color = colour.withValues(alpha: fade);
+        canvas.drawCircle(at.position, 2.8, dot);
+      }
+    }
+  }
 
   /// The tapped arrow, drawn over the steps so it can be followed end to end:
   /// a dot where it starts and a large arrowhead where it ends.
@@ -644,37 +741,115 @@ class GraphPainter extends CustomPainter {
       ..close();
   }
 
-  /// The signature: the viewer's course, overprinted across everything.
+  /// Each teammate's order of work: a quiet dashed arrow from one step to the
+  /// next along their lane, so their work reads as a line just as yours does.
+  /// Steps with a real link already have that arrow, so they get no second one.
+  void _paintTeamOrder(Canvas canvas, ZoomLevels levels) {
+    final viewport = (Offset.zero & _cam.viewport).inflate(80);
+    final node = cameraNodeSize(_cam);
+    final width = _lerp(1.6, 2.2, _cam.scale.clamp(0.4, 1.0));
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width
+      ..strokeCap = StrokeCap.round;
+    final half = _vertical
+        ? Offset(0, node.height / 2)
+        : Offset(node.width / 2, 0);
+    final gap = _vertical ? const Offset(0, 8) : const Offset(8, 0);
+    for (final member in _plan.members) {
+      if (member.id == _plan.meId) continue;
+      final order = _plan.routeFor(member.id);
+      for (var i = 0; i < order.length - 1; i++) {
+        final from = order[i];
+        final to = order[i + 1];
+        if (to.dependsOn.contains(from.id)) continue;
+        final a = _cam.toScreen(_position(from.id));
+        final b = _cam.toScreen(_position(to.id));
+        if (!Rect.fromPoints(a, b).overlaps(viewport)) continue;
+        final apart = _vertical ? b.dy - a.dy : b.dx - a.dx;
+        if (apart <= (_vertical ? node.height : node.width)) continue;
+        final colour = _p.inkSoft.withValues(
+          alpha:
+              0.7 *
+              levels.steps *
+              math.min(_emphasis(from), _emphasis(to)) *
+              _arrival(to.id).clamp(0.0, 1.0),
+        );
+        stroke.color = colour;
+        final tip = b - half - gap;
+        canvas.drawPath(_dashes(_edgePath(a + half, tip), width), stroke);
+        _heads.add((tip, colour));
+      }
+    }
+  }
+
+  /// The signature: the viewer's course, overprinted across everything. It's
+  /// solid only where one step really depends on the next. Elsewhere it's just
+  /// the order of their work, and dashes say so, with a head showing which way it
+  /// runs, so it can't pass for a link.
   void _paintRoute(Canvas canvas) {
     final mine = _plan.routeFor(_plan.meId);
     if (mine.length < 2) return;
+    final viewport = (Offset.zero & _cam.viewport).inflate(80);
+    final node = cameraNodeSize(_cam);
+    final width = _lerp(2.4, 3.6, _cam.scale.clamp(0.4, 1.0));
     final stroke = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = _lerp(2.4, 3.6, _cam.scale.clamp(0.4, 1.0))
+      ..strokeWidth = width
       ..strokeCap = StrokeCap.round;
     final core = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke.strokeWidth * 0.3
+      ..strokeWidth = width * 0.3
       ..strokeCap = StrokeCap.round;
     for (var i = 0; i < mine.length - 1; i++) {
       final a = _cam.toScreen(_position(mine[i].id));
       final b = _cam.toScreen(_position(mine[i + 1].id));
+      if (!Rect.fromPoints(a, b).overlaps(viewport)) continue;
       final finished =
           mine[i].status == StepStatus.done &&
           mine[i + 1].status == StepStatus.done;
+      final linked = mine[i + 1].dependsOn.contains(mine[i].id);
       stroke.color = _p.route.withValues(
         alpha:
             (finished ? 0.45 : 1) *
             _lerp(0.85, 1, scene.focus) *
-            (scene.selectedEdge != null ? 0.35 : 1),
+            (scene.selectedEdge != null ? 0.35 : 1) *
+            _arrival(mine[i + 1].id).clamp(0.0, 1.0),
       );
-      final path = _edgePath(a, b);
-      canvas.drawPath(path, stroke);
-      // A thin bright core, so the line reads as lit from inside.
-      core.color = const Color(0xFFFFFFFF)
-          .withValues(alpha: stroke.color.a * 0.38);
-      canvas.drawPath(path, core);
+      // From edge to edge, so the line never runs behind a step's words.
+      final half = _vertical
+          ? Offset(0, node.height / 2)
+          : Offset(node.width / 2, 0);
+      final apart = _vertical ? b.dy - a.dy : b.dx - a.dx;
+      final clear = apart > (_vertical ? node.height : node.width);
+      final gap = _vertical ? const Offset(0, 8) : const Offset(8, 0);
+      final path = _edgePath(
+        clear ? a + half : a,
+        clear ? (linked ? b - half : b - half - gap) : b,
+      );
+      if (!linked && clear) _heads.add((b - half - gap, stroke.color));
+      if (linked) {
+        canvas.drawPath(path, stroke);
+        // A thin bright core, so the line reads as lit from inside.
+        core.color = const Color(0xFFFFFFFF)
+            .withValues(alpha: stroke.color.a * 0.38);
+        canvas.drawPath(path, core);
+      } else {
+        canvas.drawPath(_dashes(path, width), stroke);
+      }
     }
+  }
+
+  Path _dashes(Path path, double width) {
+    final dash = width * 2;
+    final gap = width * 2.6;
+    final out = Path();
+    for (final metric in path.computeMetrics()) {
+      for (var d = 0.0; d < metric.length; d += dash + gap) {
+        out.addPath(metric.extractPath(d, d + dash), Offset.zero);
+      }
+    }
+    return out;
   }
 
   /// When zoomed out, steps stay on the map as small marks, so the team and the
@@ -724,11 +899,15 @@ class GraphPainter extends CustomPainter {
   }
 
   void _paintNode(Canvas canvas, PlanStep step, Offset c, ZoomLevels levels) {
-    final alpha = levels.steps * _emphasis(step);
+    final arrived = _arrival(step.id);
+    final alpha = levels.steps * _emphasis(step) * arrived.clamp(0.0, 1.0);
+    if (alpha <= 0) return;
     final lift = step.id == scene.movingId
         ? 1.04
-        : (step.id == scene.pressedId ? 0.97 : 1.0);
-    final size = cameraNodeSize(_cam) * lift;
+        : (step.id == scene.pressedId
+              ? 0.97
+              : (step.id == scene.hoveredId ? 1.025 : 1.0));
+    final size = cameraNodeSize(_cam) * lift * _lerp(0.82, 1, arrived);
     final rect = Rect.fromCenter(
       center: c,
       width: size.width,
@@ -775,15 +954,25 @@ class GraphPainter extends CustomPainter {
     final isNext = step.id == scene.nextId;
     final radius = Radius.circular(_lerp(11, 15, levels.card));
     final plate = RRect.fromRectAndRadius(rect, radius);
-    if (isNext) {
+    final standing = _plan.standing(step);
+    final rim = _statusRim(standing);
+    // A step that can't start yet sits back, so what's lit stands out more.
+    _paintGlassPlate(
+      canvas,
+      plate,
+      standing == Standing.waiting ? alpha * 0.72 : alpha,
+      fill: statusFill(_p, standing),
+    );
+    if (rim != null) {
+      // Your magenta outline goes around this, so both can be read.
       canvas.drawRRect(
-        plate.shift(const Offset(0, 3)),
+        mine ? plate.deflate(isNext ? 2.6 : 1.8) : plate,
         Paint()
-          ..color = _fade(_p.route, alpha * 0.5)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6
+          ..color = _fade(rim, alpha),
       );
     }
-    _paintGlassPlate(canvas, plate, alpha);
     if (mine) {
       canvas.drawRRect(
         plate,
@@ -807,9 +996,24 @@ class GraphPainter extends CustomPainter {
     }
   }
 
+  /// The edge of a step whose status has a strong colour. Steps not yet started
+  /// have none.
+  Color? _statusRim(Standing standing) => switch (standing) {
+    Standing.doing => _p.doing,
+    Standing.review => _p.review,
+    Standing.blocked => _p.blocked,
+    Standing.done => _p.done,
+    Standing.ready || Standing.waiting => null,
+  };
+
   /// A pane of glass drawn by hand. Real blur for every step would cost far too
   /// much in a big plan, so depth comes from a lit gradient, a rim and a shadow.
-  void _paintGlassPlate(Canvas canvas, RRect plate, double alpha) {
+  void _paintGlassPlate(
+    Canvas canvas,
+    RRect plate,
+    double alpha, {
+    StatusFill? fill,
+  }) {
     final rect = plate.outerRect;
     if (_cam.scale > 0.34) {
       final shadow = Paint()..color = _fade(_p.shadow, alpha * 0.5);
@@ -818,10 +1022,12 @@ class GraphPainter extends CustomPainter {
       canvas.drawRRect(
         plate,
         Paint()
-          ..shader = ui.Gradient.linear(rect.topCenter, rect.bottomCenter, [
-            _fade(_p.nodeTop, alpha),
-            _fade(_p.nodeBottom, alpha),
-          ]),
+          ..shader =
+              fill?.shader(rect, alpha) ??
+              ui.Gradient.linear(rect.topCenter, rect.bottomCenter, [
+                _fade(_p.nodeTop, alpha),
+                _fade(_p.nodeBottom, alpha),
+              ]),
       );
       canvas.drawRRect(
         plate.deflate(0.5),
@@ -836,7 +1042,10 @@ class GraphPainter extends CustomPainter {
       return;
     }
     // Far out there are too many to light, and too small to tell.
-    canvas.drawRRect(plate, Paint()..color = _fade(_p.nodeTop, alpha));
+    canvas.drawRRect(
+      plate,
+      Paint()..color = _fade(fill?.top ?? _p.nodeTop, alpha),
+    );
   }
 
   /// Text widths are cached in steps of 8, so ask for a width that fits.
@@ -845,45 +1054,64 @@ class GraphPainter extends CustomPainter {
   void _paintPlateText(Canvas canvas, PlanStep step, Rect rect, double alpha) {
     final mine = step.ownerId == _plan.meId;
     final standing = _plan.standing(step);
-    final weight = mine ? FontWeight.w600 : FontWeight.w500;
-    // Too far out for words: the status alone.
+    final filled = statusFill(_p, standing) != null;
+    final weight = mine || filled ? FontWeight.w600 : FontWeight.w500;
+    // Too far out for words: the colour and the mark.
     if (_cam.scale <= 0.34) {
-      paintStandingMark(canvas, rect.center, 7, standing, _p, alpha: alpha);
+      _paintNodeMark(canvas, rect.center, 7, standing, alpha);
       return;
     }
+    final word = scene.texts.get(
+      standingWord(standing),
+      TypeRamp.caption(_fade(filled ? _p.ink : _p.inkSoft, alpha))
+          .weighted(FontWeight.w600)
+          .copyWith(fontSize: 11),
+      rect.width - 16,
+    );
     final compact = rect.height < 60 || rect.width < 124;
     if (compact) {
-      final markAt = Offset(rect.left + 15, rect.center.dy);
-      paintStandingMark(canvas, markAt, 7, standing, _p, alpha: alpha);
+      _paintNodeMark(
+        canvas,
+        Offset(rect.left + 15, rect.center.dy),
+        7,
+        standing,
+        alpha,
+      );
       final title = scene.texts.get(
         step.title,
         TypeRamp.label(_fade(_p.ink, alpha))
             .weighted(weight)
             .copyWith(fontSize: 12),
-        // Up to three lines, so a name survives a narrow rectangle.
+        // Up to two lines, leaving room for the status under the name.
         rect.width - 34,
-        maxLines: rect.height >= 62 ? 3 : 2,
+        maxLines: rect.height >= 62 ? 2 : 1,
       );
-      title.paint(
-        canvas,
-        Offset(rect.left + 28, rect.center.dy - title.height / 2),
-      );
+      final shown = title.height + word.height + 1 <= rect.height - 6;
+      final total = title.height + (shown ? word.height + 1 : 0);
+      final x = rect.left + 28;
+      final y = rect.center.dy - total / 2;
+      title.paint(canvas, Offset(x, y));
+      if (shown && word.width <= rect.width - 34) {
+        word.paint(canvas, Offset(x, y + title.height + 1));
+      }
       return;
     }
     final inner = rect.deflate(8);
-    paintStandingMark(
+    _paintNodeMark(
       canvas,
       Offset(inner.left + 7, inner.top + 7),
       7,
       standing,
-      _p,
-      alpha: alpha,
+      alpha,
     );
     final overdue = _plan.isOverdue(step);
+    // Red and soft grey don't hold up on a coloured fill, so a late date says it in words.
     final due = scene.texts.get(
-      shortDate(step.due),
-      TypeRamp.caption(_fade(overdue ? _p.blocked : _p.inkSoft, alpha)),
-      _fitWidth(inner.width - 20),
+      overdue && filled ? 'Late · ${shortDate(step.due)}' : shortDate(step.due),
+      TypeRamp.caption(
+        _fade(filled ? _p.ink : (overdue ? _p.blocked : _p.inkSoft), alpha),
+      ),
+      _fitWidth(inner.width - 20 - (!mine && rect.width >= 150 ? 20 : 0)),
     );
     due.paint(canvas, Offset(inner.left + 20, inner.top));
     if (!mine && rect.width >= 150) {
@@ -895,7 +1123,10 @@ class GraphPainter extends CustomPainter {
       );
     }
     final titleTop = inner.top + 21;
-    final lines = ((inner.bottom - titleTop) / 16).floor().clamp(1, 3);
+    // Room for the name, once the status has its line at the bottom.
+    final lineHeight = word.height * 1.08;
+    final room = inner.bottom - titleTop - word.height - 2;
+    final lines = (room / lineHeight).floor().clamp(1, 3);
     // A notch smaller on narrow plates, so long words stay whole.
     final title = scene.texts.get(
       step.title,
@@ -907,6 +1138,23 @@ class GraphPainter extends CustomPainter {
       maxLines: lines,
     );
     title.paint(canvas, Offset(inner.left, titleTop));
+    if (titleTop + title.height + word.height + 1 <= inner.bottom + 3) {
+      word.paint(canvas, Offset(inner.left, inner.bottom - word.height + 2));
+    }
+  }
+
+  /// A status mark on a dark or light disc, so it stands out on a coloured fill.
+  void _paintNodeMark(
+    Canvas canvas,
+    Offset c,
+    double r,
+    Standing standing,
+    double alpha,
+  ) {
+    if (statusFill(_p, standing) != null) {
+      canvas.drawCircle(c, r + 2, Paint()..color = _fade(_p.ground, alpha));
+    }
+    paintStandingMark(canvas, c, r, standing, _p, alpha: alpha);
   }
 
   void _paintCardText(
@@ -917,24 +1165,29 @@ class GraphPainter extends CustomPainter {
   ) {
     final pad = 12.0;
     final inner = rect.deflate(pad);
-    paintStandingMark(
+    final filled = statusFill(_p, _plan.standing(step)) != null;
+    final soft = filled ? _p.ink : _p.inkSoft;
+    final overdue = _plan.isOverdue(step);
+    _paintNodeMark(
       canvas,
       Offset(inner.left + 8, inner.top + 8),
       8,
       _plan.standing(step),
-      _p,
-      alpha: textAlpha,
+      textAlpha,
     );
     final standing = scene.texts.get(
       standingLabel(_plan.standing(step)),
-      TypeRamp.caption(_fade(_p.inkSoft, textAlpha)),
-      inner.width - 96,
+      TypeRamp.caption(_fade(soft, textAlpha)).weighted(FontWeight.w600),
+      inner.width - 118,
     );
     standing.paint(canvas, Offset(inner.left + 22, inner.top + 1));
     final due = scene.texts.get(
-      shortDate(step.due),
+      overdue && filled ? 'Late · ${shortDate(step.due)}' : shortDate(step.due),
       TypeRamp.caption(
-        _fade(_plan.isOverdue(step) ? _p.blocked : _p.inkFaint, textAlpha),
+        _fade(
+          filled ? _p.ink : (overdue ? _p.blocked : _p.inkFaint),
+          textAlpha,
+        ),
       ),
       90,
       align: TextAlign.right,
@@ -956,7 +1209,7 @@ class GraphPainter extends CustomPainter {
       final lines = ((footerTop - y - 4) / 18).floor().clamp(1, 4);
       final body = scene.texts.get(
         step.description,
-        TypeRamp.label(_fade(_p.inkSoft, textAlpha)),
+        TypeRamp.label(_fade(soft, textAlpha)),
         inner.width,
         maxLines: lines,
       );
@@ -985,7 +1238,7 @@ class GraphPainter extends CustomPainter {
     if (parts.isNotEmpty) {
       final footer = scene.texts.get(
         parts.join(' · '),
-        TypeRamp.caption(_fade(_p.inkFaint, textAlpha)),
+        TypeRamp.caption(_fade(filled ? _p.ink : _p.inkFaint, textAlpha)),
         inner.width,
       );
       footer.paint(canvas, Offset(inner.left, footerTop));
@@ -1473,6 +1726,59 @@ void paintStandingMark(
         ring,
       );
   }
+}
+
+/// A small sample of a status's colour, for the map key. It carries the drawn
+/// mark too, because lists and panels use the marks.
+class StatusSwatch extends StatelessWidget {
+  const StatusSwatch(this.standing, {super.key});
+
+  final Standing standing;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: const Size(34, 20),
+      painter: _SwatchPainter(standing, Palette.of(context)),
+      child: SizedBox(
+        width: 34,
+        height: 20,
+        child: Center(child: StandingMark(standing, size: 14)),
+      ),
+    );
+  }
+}
+
+class _SwatchPainter extends CustomPainter {
+  _SwatchPainter(this.standing, this.palette);
+  final Standing standing;
+  final Palette palette;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final shape = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(6),
+    );
+    final status = statusFill(palette, standing);
+    final fill = Paint();
+    if (status == null) {
+      fill.color = palette.nodeBottom;
+    } else {
+      fill.shader = status.shader(Offset.zero & size, 1);
+    }
+    canvas.drawRRect(shape, fill);
+    canvas.drawRRect(
+      shape,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..color = palette.nodeRim,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SwatchPainter old) =>
+      old.standing != standing || old.palette != palette;
 }
 
 /// Stand-alone painter for marks in lists and panels.
