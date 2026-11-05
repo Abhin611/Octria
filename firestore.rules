@@ -1,0 +1,212 @@
+rules_version = '2';
+
+// Who may do what in Octria. The app hides what someone can't do, but this file
+// is what actually enforces it. Tested by tool/rules_test.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return request.auth.uid;
+    }
+
+    function room(cid) {
+      return get(/databases/$(database)/documents/classrooms/$(cid)).data;
+    }
+
+    function roomAfter(cid) {
+      return getAfter(/databases/$(database)/documents/classrooms/$(cid)).data;
+    }
+
+    function isMember(cid) {
+      return signedIn() && me() in room(cid).memberUids;
+    }
+
+    function isMaster(cid) {
+      return signedIn() && room(cid).masterUid == me();
+    }
+
+    // Masters and co-masters can edit anyone's steps and all the phases.
+    function isManager(cid) {
+      return signedIn() &&
+        (room(cid).masterUid == me() || me() in room(cid).coMasterUids);
+    }
+
+    function changedOnly(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && me() == uid;
+    }
+
+    // Looking up one code is allowed; listing them all isn't.
+    match /inviteCodes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() &&
+        roomAfter(request.resource.data.classroomId).masterUid == me() &&
+        roomAfter(request.resource.data.classroomId).inviteCode == code &&
+        roomAfter(request.resource.data.classroomId).mode == 'group';
+      // Only whether joining needs approval can change.
+      allow update: if signedIn() && isMaster(resource.data.classroomId) &&
+        changedOnly(['approval']);
+      allow delete: if signedIn() && isMaster(resource.data.classroomId);
+    }
+
+    match /classrooms/{cid} {
+      allow read: if signedIn() && me() in resource.data.memberUids;
+
+      allow create: if signedIn() &&
+        request.resource.data.masterUid == me() &&
+        request.resource.data.memberUids == [me()] &&
+        request.resource.data.coMasterUids == [];
+
+      allow update: if isMasterUpdate() || isJoining() || isLeaving() || isHandingOver();
+
+      allow delete: if signedIn() && resource.data.masterUid == me();
+
+      function isMasterUpdate() {
+        return signedIn() &&
+          resource.data.masterUid == me() &&
+          request.resource.data.masterUid == me() &&
+          me() in request.resource.data.memberUids &&
+          request.resource.data.memberUids.size() <= 10 &&
+          !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['inviteCode', 'mode', 'createdAt']);
+      }
+
+      // Joining adds only yourself, needs room, and needs the classroom's code
+      // on the member record written alongside it.
+      function isJoining() {
+        let after = request.resource.data;
+        let added = after.memberUids.toSet().difference(resource.data.memberUids.toSet());
+        return signedIn() &&
+          resource.data.mode == 'group' &&
+          resource.data.get('joinApprovalRequired', false) != true &&
+          changedOnly(['memberUids']) &&
+          added == [me()].toSet() &&
+          resource.data.memberUids.toSet().difference(after.memberUids.toSet()).size() == 0 &&
+          after.memberUids.size() <= 10 &&
+          getAfter(/databases/$(database)/documents/classrooms/$(cid)/members/$(me())).data.inviteCode
+            == resource.data.inviteCode;
+      }
+
+      // A member or co-master takes only themselves out.
+      function isLeaving() {
+        return signedIn() &&
+          resource.data.masterUid != me() &&
+          me() in resource.data.memberUids &&
+          changedOnly(['memberUids', 'coMasterUids']) &&
+          request.resource.data.memberUids == resource.data.memberUids.removeAll([me()]) &&
+          request.resource.data.coMasterUids == resource.data.coMasterUids.removeAll([me()]);
+      }
+
+      // A leaving master passes the classroom to a co-master, and only that.
+      function isHandingOver() {
+        let next = request.resource.data.masterUid;
+        return signedIn() &&
+          resource.data.masterUid == me() &&
+          next in resource.data.coMasterUids &&
+          changedOnly(['masterUid', 'memberUids', 'coMasterUids']) &&
+          request.resource.data.memberUids == resource.data.memberUids.removeAll([me()]) &&
+          request.resource.data.coMasterUids == resource.data.coMasterUids.removeAll([next]);
+      }
+
+      // Asking to join a classroom that needs approval. It grants nothing.
+      match /joinRequests/{uid} {
+        allow get: if signedIn() && (me() == uid || isManager(cid));
+        allow list: if isManager(cid);
+        allow create, update: if signedIn() && me() == uid &&
+          room(cid).mode == 'group' &&
+          room(cid).get('joinApprovalRequired', false) == true &&
+          request.resource.data.inviteCode == room(cid).inviteCode;
+        allow delete: if signedIn() && (me() == uid || isMaster(cid));
+      }
+
+      match /members/{uid} {
+        allow read: if isMember(cid);
+
+        allow create: if isApprovedByMaster() || (signedIn() && me() == uid && (
+          roomAfter(cid).masterUid == me() ||
+          (room(cid).mode == 'group' &&
+            room(cid).get('joinApprovalRequired', false) != true &&
+            request.resource.data.inviteCode == room(cid).inviteCode)
+        ));
+
+        function isApprovedByMaster() {
+          return signedIn() && roomAfter(cid).masterUid == me() &&
+            uid in roomAfter(cid).memberUids &&
+            exists(/databases/$(database)/documents/classrooms/$(cid)/joinRequests/$(uid));
+        }
+
+        // Your own name, and when you last looked.
+        allow update: if signedIn() && me() == uid &&
+          changedOnly(['name', 'photoUrl', 'lastSeenAt']);
+
+        allow delete: if (isMaster(cid) && uid != room(cid).masterUid) ||
+          (signedIn() && me() == uid && !(me() in roomAfter(cid).memberUids)) ||
+          (isMaster(cid) && room(cid).get('status', '') == 'deleting');
+      }
+
+      match /phases/{pid} {
+        allow read: if isMember(cid);
+        allow write: if isManager(cid);
+      }
+
+      match /steps/{sid} {
+        allow read: if isMember(cid);
+
+        allow create: if isManager(cid) || (
+          isMember(cid) &&
+          request.resource.data.ownerUid == me() &&
+          !finishesWithoutApproval(cid, 'todo')
+        );
+
+        allow update: if isManager(cid) || ownStepUpdate(cid) || unlinksDeletedStep(cid);
+
+        allow delete: if isManager(cid) ||
+          (isMember(cid) && resource.data.ownerUid == me());
+
+        function finishesWithoutApproval(cid, before) {
+          return room(cid).approvalRequired == true &&
+            request.resource.data.status == 'done' && before != 'done';
+        }
+
+        // Your own step, which you can hand to any other member.
+        function ownStepUpdate(cid) {
+          return isMember(cid) &&
+            resource.data.ownerUid == me() &&
+            request.resource.data.ownerUid in room(cid).memberUids &&
+            !finishesWithoutApproval(cid, resource.data.status);
+        }
+
+        // Deleting your step also clears it from others' lists of what they need.
+        function unlinksDeletedStep(cid) {
+          return isMember(cid) &&
+            changedOnly(['dependsOn']) &&
+            resource.data.dependsOn.hasAll(request.resource.data.dependsOn);
+        }
+      }
+
+      // Written once, by the person it says did it. Nobody can change an entry,
+      // and only the master can delete one.
+      match /activity/{id} {
+        allow read: if isMember(cid);
+        allow create: if signedIn() &&
+          me() in roomAfter(cid).memberUids &&
+          request.resource.data.actorUid == me();
+        allow update: if false;
+        allow delete: if isMaster(cid);
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -4,12 +4,12 @@ description: The viewer's own course, overprinted in magenta on the team's plan.
 colors:
   ground: "#F2F5FA"
   ground-dark: "#0E1116"
-  ambient-blue: "#BFD9FF"
-  ambient-blue-dark: "#1B2F55"
-  ambient-pink: "#FFD6EC"
-  ambient-pink-dark: "#3A1C46"
-  ambient-mint: "#CFF3E6"
-  ambient-mint-dark: "#0F3A38"
+  ambient-ember: "#FFE8D4"
+  ambient-ember-dark: "#2A1406"
+  ambient-amber: "#FFF2E4"
+  ambient-amber-dark: "#1E0F05"
+  ambient-sand: "#FFF6EC"
+  ambient-sand-dark: "#170B04"
   glass-thin: "#FFFFFF73"
   glass-thin-dark: "#1C20286B"
   glass-regular: "#FFFFFF94"
@@ -50,6 +50,8 @@ colors:
   status-done-dark: "#55BD84"
   status-doing: "#1A67AD"
   status-doing-dark: "#6AB0EA"
+  status-review: "#B26A00"
+  status-review-dark: "#F5B544"
   status-waiting: "#7E8494"
   status-waiting-dark: "#8B919E"
   status-blocked: "#CE2F26"
@@ -239,7 +241,7 @@ Steps are rectangles, by the user's decision, because they hold the step's statu
 **Key Characteristics:**
 - One magenta overprint, reserved for the viewer's own route and own work.
 - Every status is a drawn mark first and a colour second.
-- A map running underneath floating glass, on a still ambient ground.
+- A map running underneath floating glass, on a warm ground with a slow orange globe turning behind it.
 - One continuous zoom axis, shared by drawing and hit testing.
 - Standard Cupertino controls, spring motion, feedback on the press.
 - One workhorse sans with tabular dates.
@@ -247,7 +249,7 @@ Steps are rectangles, by the user's decision, because they hold the step's statu
 
 ## Colors
 
-Cool blue-tinted neutrals on a soft ambient ground, with map-convention status hues and a single loud overprint. Each role has a light and a dark value, chosen by the system's appearance; never ship a new colour with only one.
+Warm neutrals on a soft orange-touched ground, with map-convention status hues and a single loud overprint. Each role has a light and a dark value, chosen by the system's appearance; never ship a new colour with only one.
 
 ### Primary
 - **Overprint Magenta** (#C2187A light, #F2589F dark): the viewer's course and nothing else. It draws the route line, the heavy outline of the next step, the outline of the viewer's other steps and timeline bars, their lane avatar, their dots on the far view and minimap, the outline of the phase holding their next step, the ring on the next-step card, "Your next step" in the list, and Focus on me while it is active.
@@ -256,7 +258,8 @@ Cool blue-tinted neutrals on a soft ambient ground, with map-convention status h
 ### Secondary
 Status colours follow map convention and appear on status marks, dependency arrows and timeline bars.
 - **Done Green** (#1F7F4C light, #55BD84 dark): finished steps, arrows leaving finished steps, the unlock sweep and ripple, and the swipe-to-done thumb.
-- **Under-Way Blue** (#1A67AD light, #6AB0EA dark): steps in progress or in review, and arrows leaving them. Also the 2px keyboard focus ring on buttons.
+- **Approval Amber** (#B26A00 light, #F5B544 dark): steps waiting for approval.
+- **Under-Way Blue** (#1A67AD light, #6AB0EA dark): steps in progress, and arrows leaving them. Also the 2px keyboard focus ring on buttons.
 - **Waiting Grey** (#7E8494 light, #8B919E dark): steps waiting on another step, and arrows leaving unstarted steps.
 - **Blocked Red** (#CE2F26 light, #F2675D dark): blocked steps, arrows into them, overdue dates, and destructive labels.
 
@@ -264,11 +267,12 @@ A step that is ready to start uses plain ink: an open ring, ready and unremarkab
 
 ### Tertiary
 The ground and terrain. They give the glass something to pick up, and never carry status.
-- **Ambient** (blue #BFD9FF, pink #FFD6EC, mint #CFF3E6 light; #1B2F55, #3A1C46, #0F3A38 dark): three large soft glows on the ground, behind every view. They never move. High contrast removes them.
+- **Ambient** (#FFE8D4, #FFF2E4, #FFF6EC light; #2A1406, #1E0F05, #170B04 dark): three large soft warm glows on the ground, behind every view. They never move. High contrast removes them.
+- **Orb** (#EA7A1E light, #FF8C2E dark): the globe behind every view, a soft light inside fine lines, like a calm assistant at rest. One turn takes 90 seconds at about 24 frames a second. It holds still under Reduce Motion or on a device that can't keep up, and goes away with more contrast. Orb is used for nothing else.
 - **Terrain A and B** (white at 22% and 12% light; 5% and 3% dark): phase bands. Phases cycle A, none, B, none.
 
 ### Neutral
-- **Ground** (#F2F5FA light, #0E1116 dark): the base under the ambient glows, and the fade at the status bar.
+- **Ground** (#FBF7F2 light, #0E0B09 dark): the base under the ambient glows, and the fade at the status bar.
 - **Glass** thin, regular and thick (white at 45%, 58%, 82% light; #1C2028 at 42%, 55%, 84% dark): how much of a pane is material. Regular for bars, cards and sticky headers; thick for anything read at length.
 - **Rim and Sheen** (rim white 90% to 25% light, 28% to 6% dark; sheen white 20% light, 7% dark): light along a pane's top edge, fading down.
 - **Node** (white 90% to 72% light; #333945 85% to #272C36 72% dark, with a Node Rim): a step or phase card on the canvas.
@@ -333,7 +337,7 @@ Spacing is hand-set to the element rather than a strict scale: 6px between chips
 
 ## Elevation & Depth
 
-Three layers: a still ground, the map, and glass floating over it. Glass panes blur what is behind them by 18 sigma with a saturation lift, then add a translucent fill, a sheen fading down from the top, and a 1px rim lit along the top edge. All panes share one backdrop through a `BackdropGroup`, so a pane over another pane never blurs it twice.
+Three layers: a warm ground with its slow globe, the map, and glass floating over it. Glass panes blur what is behind them by 18 sigma with a saturation lift, then add a translucent fill, a sheen fading down from the top, and a 1px rim lit along the top edge. All panes share one backdrop through a `BackdropGroup`, so a pane over another pane never blurs it twice.
 
 Steps and phase cards are drawn glass, not real glass: a lit gradient, a lit rim and two offset shadow shapes, with no blur, so a 600-step plan stays smooth. Below scale 0.34 they lose even that and go flat. The next step adds a soft magenta glow under it.
 
@@ -379,16 +383,23 @@ Standard, tactile and quick: feedback lands on the press.
 ### Navigation
 - **Views:** Cupertino sliding segmented control (Flowspace, Timeline, List) on wide layouts; a floating glass capsule of three tabs on narrow, with a sliding Control highlight behind the active one, ink active and Soft Ink inactive.
 - **Sidebar items:** 13px label, 12px radius. Selected is Control with ink text at 600; hover is Hairline; rest is Soft Ink with no fill.
-- **Classroom switcher on narrow:** the title with a small chevron opens a Cupertino action sheet.
+- **Home look:** near-black graphite in dark and crisp off-white in light, over a fine dot grid. Solid panels with hairline edges carry the home pages, with glass kept for what floats. Indigo, violet, warm yellow and teal separate kinds of things (task types, activity kinds, stat tiles) in soft icon squares; none of them means status, and magenta stays the viewer's. Rings fill as they appear: a ticked dial on each classroom and concentric rings for the viewer's own steps, always with a key.
+- **Lanes:** each person's steps run in due order along the flow, whichever way it runs, joined by dashed arrows. Yours are in the route colour, teammates' in a quiet neutral. A dashed arrow is an order, a solid one a real link.
+- **Home:** after sign-in, five destinations: Dashboard, Activity, a small round add button, Timeline and Profile. A floating capsule at the bottom on phones, a side rail from 840px up. The dashboard greets by name, shows three stat tiles and the most pressing step, then a search box over a grid of square classroom cards, each with a progress ring that fills as it appears.
+- **Classroom switcher on narrow:** the title with a small chevron opens a Cupertino action sheet that only switches classrooms. Everything else about the classroom is under a More tab in the bottom capsule, beside Profile.
+- **Red count:** a red number raised over the corner, like a phone's app icon, marks unseen changes on Since you were away and on the More tab. Red here means "new", the one use outside status. Opening Since you were away clears it; there's no popup.
+- **Activity cards:** log entries sit in bordered cards with an icon, the sentence and the time to the second, under a heading for each day, then grouped by hour with a line tying each hour's entries together. Only the latest day starts open. The master can delete an entry or clear the log.
 - **Android Back:** dismisses what is open before leaving: context menu, filter panel, selected step.
 
 ### Step Marks
 Six drawn circles that read in greyscale: **done** a filled disc with a check, **in progress** a half-filled disc, **in review** a ring with a centre dot, **ready** an open ring, **waiting** a thin ring with a tiny centre dot, **blocked** a ring with a diagonal slash. The same drawing is used on the graph, cards, panels, lists, the timeline and the map key, which names every mark and line in one place. 
 
 ### Step Rectangles
-A step is a rounded rectangle, 176 by 104 at full scale, never narrower than 104px or shorter than 48px unless the column or lane would crowd it. It holds a status mark, the due date and up to three lines of title; below 60px tall or 124px wide it shrinks to the mark and two lines, and below scale 0.44 to the mark alone. Other people's steps add an owner avatar when 150px wide. It grows continuously into the full card on zoom. Outlines carry ownership: a lit 1px rim for others, 2px magenta for yours, 3.4px magenta plus a soft magenta glow for your next step, with a 2px ink ring outside when selected. Titles use 12px on narrow rectangles so long words stay whole.
+A step is a rounded rectangle, 176 by 104 at full scale, never narrower than 104px or shorter than 48px unless the column or lane would crowd it. It holds a status mark, the due date and up to three lines of title; below 60px tall or 124px wide it shrinks to the mark and two lines, and below scale 0.44 to the mark alone. Other people's steps add an owner avatar when 150px wide. It grows continuously into the full card on zoom. Outlines carry ownership: a lit 1px rim for others, 2px magenta for yours, 3.4px magenta for your next step, with a 2px ink ring outside when selected. Titles use 12px on narrow rectangles so long words stay whole.
 
-**The Drawn Mark Rule.** Every status is a drawn mark before it is a colour. Remove the colour and the status must still be readable; any new surface that shows status uses these marks.
+**The Status Colour Rule.** Decided by the product's owner: a step's whole rectangle shows its status in a solid fill, deep rather than bright, with its drawn mark at the top left and the status in words at the bottom. Blue for in progress, amber for waiting for approval, green for done, red for blocked, faint grey for ready. Steps waiting on another stay plain, at 72%. Nothing glows: the owner tried a glow and chose to drop it, so the fill, a coloured edge, the mark and the word carry it. Fills are mixed from an opaque base, and words on them use full ink at 600, so they stay readable. A late date says "Late" in words. Your magenta outline goes around all of it.
+
+**The Drawn Mark Rule.** Every status is a drawn mark as well as a colour, so it reads without colour. On a filled step the mark sits on a small disc of the ground colour, and the status is also written out when the step has room.
 
 ### Framing and Short Screens
 A classroom opens on the whole plan when it fits at 0.7 scale or better; otherwise on the next step's whole phase when that is readable at 0.5 or closer and shows at least three people; otherwise on the closest view, down to 0.42, that holds the next step and at least three people's steps whole on screen. Rectangles keep a 66px minimum height where the lane allows, and narrow ones give names up to three lines. Tapping a phase's name fits all of it at any size. Turning the device reframes. On phones the member column is 44px of avatars and the phase strip 28 to 34px, and the next step is a one-line pill. Below 500px tall there is one slim bar holding the classroom, next step, an icon view switcher and every map control, with nothing else floating over the map; below 420px of canvas the lane rows tighten to 112 units. Left and right safe-area insets are always respected.
@@ -400,7 +411,7 @@ A moon or sun button in every top bar switches between the white and dark backgr
 The graph flows left to right by default, and a toggle in the toolbar, or the V key, switches it to top to bottom. Top to bottom makes phases rows and members columns: members stay along the top strip and phase names along the left edge, turning on their side in a phone's slim column. Arrows leave the bottom of a step and enter the top of the next, with their tracks in the gap between rows. Steps glide to their new places on the switch. The choice lasts until the app closes; it isn't saved yet.
 
 ### The Route
-The signature. A 2.4px to 3.6px round-capped magenta line with a thin bright core, like a tube of light, through the viewer's steps in order, drawn over all other wires and through every zoom level. Finished stretches drop to 45% alpha, so the course ahead is the strongest thing on the map. The line runs behind the viewer's step rectangles, showing faintly through them, and joins them along their lane.
+The signature. A 2.4px to 3.6px round-capped magenta line through the viewer's steps in order, drawn over all other wires and through every zoom level. It only exists for the viewer, so it must never pass for a link everyone shares: where a step really depends on the one before, it's solid with a thin bright core, like a tube of light; elsewhere it's dashed, meaning only the order of their work. Finished stretches drop to 45% alpha, so the course ahead is the strongest thing on the map. The line runs from edge to edge of the viewer's rectangles, so it stays clear of their words.
 
 ### Dependency Wires
 1.6px curves, coloured by the status of the work they carry and fading with the emphasis of their ends. The critical path is a cased line, like a main road: an ink casing at 42% under the wire, named in the map key.
@@ -420,6 +431,8 @@ Focus on me lifts the viewer's lane by dimming others' steps to 22% and their gu
 Marking a step done sends a green sweep along its outgoing wires, one 2.5px ripple from the node, and a brief ring on each step it unlocks, over 900ms, with a medium haptic. A notice then says, in words, what can start now and offers Undo. On touch, in-progress steps complete by sliding a 44px green thumb along a 50px pill track; on pointer layouts by a button.
 
 ### Motion
+Pages arrive with their parts rising in one after another, and cards give way on the press. A classroom's graph arrives along the flow of its plan, and a small light travels along arrows leaving work in progress. Both are skipped with reduced motion, above 200 steps, and (for the light) on a device short of frame budget.
+
 Motion is spring-based and described in response and damping ratio. Springs keep current value and velocity, so anything moving can be grabbed and redirected without a jump. During a live gesture the camera follows the finger exactly; past a bound it rubber-bands; on release it aims at where the flick was going. Damping is critical by default, with slight overshoot (0.85) only on a sheet flick above 500px/s. When the system asks for reduced motion, the camera arrives without travelling and panels and sheets cross-fade or settle over 160ms instead of springing.
 
 **The Kept Apart Rule.** Destructive actions are isolated by empty space: Delete step sits 56px below the panel's last section, with nothing common near it.
@@ -446,7 +459,7 @@ Motion is spring-based and described in response and damping ratio. Springs keep
 - **Don't** add points, streaks, levels, confetti or other rewards; completion feedback stays the one sweep and ripple on the map.
 - **Don't** give the progress ring a second ink or a place outside phase cards.
 - **Don't** use real blur on anything drawn per step; canvas glass is faked for speed.
-- **Don't** stack one translucent pane on another for reading, or animate the ambient ground.
+- **Don't** stack one translucent pane on another for reading, or let the globe behind everything move faster than one slow turn.
 - **Don't** add a blurred surface without its solid high-contrast form.
 - **Don't** add a second typeface, or change Inter's weight without setting its weight axis.
 - **Don't** let a wire run across words.

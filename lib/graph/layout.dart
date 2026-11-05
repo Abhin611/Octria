@@ -95,14 +95,16 @@ GraphLayout computeLayout(
     for (var i = 0; i < plan.phases.length; i++) plan.phases[i].id: i,
   };
 
-  // The viewer's steps in one phase also run in due order, so their route never
-  // doubles back along their lane. Only the viewer has a route.
+  // Everyone's steps in one phase run in due order along the flow, so a person's
+  // work reads as a line down their own lane and never doubles back.
   final previousOnRoute = <String, PlanStep>{};
-  final lastInPhase = <String, PlanStep>{};
-  for (final s in plan.routeFor(plan.meId)) {
-    final before = lastInPhase[s.phaseId];
-    if (before != null) previousOnRoute[s.id] = before;
-    lastInPhase[s.phaseId] = s;
+  for (final m in plan.members) {
+    final lastInPhase = <String, PlanStep>{};
+    for (final s in plan.routeFor(m.id)) {
+      final before = lastInPhase[s.phaseId];
+      if (before != null) previousOnRoute[s.id] = before;
+      lastInPhase[s.phaseId] = s;
+    }
   }
 
   // Sub-column within each phase: one past the deepest same-phase dependency.

@@ -5,6 +5,9 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../data/backend.dart';
+import '../data/models.dart';
+import '../data/plan_sync.dart';
 import '../graph/camera.dart';
 import '../graph/graph_painter.dart';
 import '../graph/graph_view.dart';
@@ -15,6 +18,7 @@ import '../model/sample_plans.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
 import '../widgets/spring_sheet.dart';
+import 'classroom_forms.dart';
 import 'map_key.dart';
 import 'plan_views.dart';
 import 'step_panel.dart';
@@ -59,8 +63,22 @@ class _Notice {
   final VoidCallback? action;
 }
 
+/// A stored classroom to open, rather than the sample plans.
+class ClassroomSession {
+  const ClassroomSession({required this.backend, required this.classroomId});
+
+  final Backend backend;
+  final String classroomId;
+}
+
 class ClassroomScreen extends StatefulWidget {
-  const ClassroomScreen({super.key, required this.onBrightnessChanged});
+  const ClassroomScreen({
+    super.key,
+    required this.onBrightnessChanged,
+    this.session,
+  });
+
+  final ClassroomSession? session;
 
   /// Asks the app to switch between the white and dark backgrounds.
   final ValueChanged<Brightness> onBrightnessChanged;
@@ -82,7 +100,19 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     'Stress test: 600 steps',
   ];
 
-  late final PlanController _controller = PlanController(_plans.first(), this);
+  late final PlanController _controller = PlanController(
+    widget.session == null
+        ? _plans.first()
+        : Plan(
+            title: '',
+            members: const [],
+            phases: const [],
+            steps: const [],
+            meId: widget.session!.backend.currentUser?.uid ?? '',
+            today: DateTime.now(),
+          ),
+    this,
+  );
   late final GraphCamera _camera = GraphCamera(this);
   late final AnimationController _focus = AnimationController(
     vsync: this,
@@ -111,13 +141,281 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   int _graphEpoch = 0;
   int _framedEpoch = -1;
   bool? _framedWide;
+  PlanSync? _sync;
+  ClassroomState? _stored;
+  StreamSubscription<List<ActivityEntry>>? _feed;
+  List<ActivityEntry> _feedEntries = const [];
+  List<ActivityEntry> _forMe = const [];
+  DateTime? _seenAt;
+
+  /// Changes for this person they haven't looked at yet.
+  int get _unread {
+    final seen = _seenAt;
+    if (seen == null) return 0;
+    return _forMe.where((e) => e.createdAt.isAfter(seen)).length;
+  }
 
   Plan get _plan => _controller.plan;
+  Backend? get _backend => widget.session?.backend;
+  String get _classroomId => widget.session?.classroomId ?? '';
+  Classroom? get _room => _stored?.classroom;
+  String get _me => _plan.meId;
+
+  /// Masters and co-masters. With sample plans there's nobody to answer to.
+  bool get _manages => _room?.canManage(_me) ?? widget.session == null;
+  bool get _isMaster => _room?.masterUid == _me;
+
+  bool _canEdit(String id) => _manages || _plan.steps[id]?.ownerId == _me;
 
   @override
   void initState() {
     super.initState();
     _controller.addListener(_onPlanChanged);
+    final session = widget.session;
+    if (session != null) {
+      _sync = PlanSync(
+        backend: session.backend,
+        classroomId: session.classroomId,
+        controller: _controller,
+        onRefused: (message) {
+          if (mounted) _showNotice(message);
+        },
+        onState: _onStored,
+      );
+      _feed = session.backend.activityFeed(session.classroomId).listen((
+        entries,
+      ) {
+        _feedEntries = entries;
+        _refreshNews();
+      }, onError: (Object _) {});
+    }
+  }
+
+  void _onStored(ClassroomState state) {
+    if (!mounted) return;
+    final first = _stored == null;
+    final hadSteps = _stored?.steps.isNotEmpty ?? false;
+    setState(() {
+      _stored = state;
+      // A plan's first steps are worth framing; later ones keep the camera put.
+      if (first || (!hadSteps && state.steps.isNotEmpty)) _graphEpoch++;
+    });
+    if (first) _startCounting(state);
+    _refreshNews();
+  }
+
+  /// Sets where the red count starts from: their last look, or now on a first
+  /// visit, when nothing that came before is news.
+  void _startCounting(ClassroomState state) {
+    DateTime? lastSeen;
+    for (final m in state.members) {
+      if (m.uid == _me) lastSeen = m.lastSeenAt;
+    }
+    if (lastSeen == null) _markSeen();
+    _seenAt = lastSeen ?? DateTime.now();
+  }
+
+  void _markSeen() =>
+      unawaited(_backend?.markSeen(_classroomId).catchError((Object _) {}));
+
+  void _refreshNews() {
+    final state = _stored;
+    if (state == null || !mounted) return;
+    final forMe = awayNews(_feedEntries, _me, state.steps);
+    setState(() => _forMe = forMe);
+    final seen = _seenAt;
+    final changed = {
+      for (final e in forMe)
+        if (seen != null && e.createdAt.isAfter(seen) && e.targetId.isNotEmpty)
+          e.targetId,
+    };
+    // Badges on the graph, only when the set really changes.
+    if (!setEquals(changed, _badged)) {
+      _badged = changed;
+      _sync?.showChanged(changed);
+    }
+  }
+
+  Set<String> _badged = const {};
+
+  /// "Since you were away": opening it is what clears the red count.
+  void _showAwayNews() {
+    final fresh = _unread;
+    final entries = _forMe;
+    if (fresh > 0) {
+      _markSeen();
+      setState(() => _seenAt = entries.first.createdAt);
+      _refreshNews();
+    }
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ActivitySheet(
+          title: 'Since you were away',
+          intro: 'Changes that affect you, newest first.',
+          empty:
+              'Nothing yet. A red number appears here when someone changes '
+              'your steps, or finishes a step yours need.',
+          entries: entries,
+          newCount: fresh,
+        ),
+      ),
+    );
+  }
+
+  void _showProfile() {
+    final backend = _backend;
+    if (backend == null) return;
+    unawaited(
+      showGlassSheet<void>(context, (_) => ProfileSheet(backend: backend)),
+    );
+  }
+
+  void _showMore() {
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ActionListSheet(
+          title: 'Classroom',
+          items: [
+            if (_isShort(context)) ('Add a step', 0, _addStep),
+            ..._classroomActions(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showActivity() async {
+    final backend = _backend;
+    if (backend == null) return;
+    final List<ActivityEntry> entries;
+    try {
+      entries = await backend.activity(_classroomId);
+    } on Object {
+      _showNotice('The activity log couldn’t load. Please retry.');
+      return;
+    }
+    if (!mounted) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ActivitySheet(
+          title: 'Activity',
+          entries: entries,
+          backend: _isMaster ? backend : null,
+          classroomId: _isMaster ? _classroomId : null,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPhases() async {
+    final state = _stored;
+    final backend = _backend;
+    if (state == null || backend == null) return;
+    await showGlassSheet<void>(
+      context,
+      (_) => PhasesSheet(
+        backend: backend,
+        classroomId: _classroomId,
+        phases: state.phases,
+        steps: state.steps,
+      ),
+    );
+  }
+
+  void _showMembers() {
+    final state = _stored;
+    final backend = _backend;
+    if (state == null || backend == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => MembersSheet(backend: backend, state: state),
+      ),
+    );
+  }
+
+  Future<void> _leaveClassroom() async {
+    final backend = _backend;
+    if (backend == null) return;
+    final sure = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Leave this classroom?'),
+        content: Text(
+          _isMaster
+              ? 'The co-master becomes master. Your steps stay in the plan.'
+              : 'Your steps stay in the plan, under the master. You’d need the '
+                    'code to come back.',
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Leave'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    final navigator = Navigator.of(context);
+    try {
+      await backend.leaveClassroom(_classroomId);
+      navigator.pop();
+    } on BackendFailure catch (e) {
+      if (mounted) _showNotice(e.message);
+    }
+  }
+
+  void _showSettings() {
+    final room = _room;
+    final backend = _backend;
+    if (room == null || backend == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ClassroomSettingsSheet(backend: backend, classroom: room),
+      ),
+    );
+  }
+
+  Future<void> _addStep() async {
+    if (_plan.phases.isEmpty) {
+      await _showPhases();
+      return;
+    }
+    final added = await showGlassSheet<PlanStep>(
+      context,
+      (_) => StepEditorSheet(
+        plan: _plan,
+        newId: _backend!.newId,
+        canAssignOthers: _manages,
+        defaultDue: _room?.deadline,
+      ),
+    );
+    if (added == null || !mounted) return;
+    _controller.adopt(_plan.withSteps([..._plan.steps.values, added]));
+    _showNotice('Added “${added.title}”');
+  }
+
+  Future<void> _editStep(PlanStep step) async {
+    final edited = await showGlassSheet<PlanStep>(
+      context,
+      (_) => StepEditorSheet(
+        plan: _plan,
+        newId: _backend!.newId,
+        canAssignOthers: _manages,
+        step: step,
+      ),
+    );
+    if (edited == null || !mounted) return;
+    _controller.adopt(_plan.replacing(edited));
   }
 
   void _onPlanChanged() {
@@ -127,6 +425,8 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   @override
   void dispose() {
     _noticeTimer?.cancel();
+    _sync?.dispose();
+    unawaited(_feed?.cancel());
     _controller.removeListener(_onPlanChanged);
     _controller.dispose();
     _camera.dispose();
@@ -504,8 +804,22 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   void _markDone(String id) {
     final step = _plan.steps[id];
     if (step == null) return;
+    if (!_canEdit(id)) {
+      _showNotice(
+        'Only ${_plan.member(step.ownerId).name} or the master can '
+        'change this step.',
+      );
+      return;
+    }
     if (step.status == StepStatus.done) {
       _controller.setStatus(id, StepStatus.todo);
+      return;
+    }
+    if ((_room?.approvalRequired ?? false) && !_manages) {
+      _controller.setStatus(id, StepStatus.review);
+      setState(() => _menu = null);
+      HapticFeedback.mediumImpact();
+      _showNotice('“${step.title}” is waiting for approval');
       return;
     }
     final before = step.status;
@@ -536,6 +850,14 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   }
 
   void _link(String fromId, String toId) {
+    if (!_canEdit(toId)) {
+      setState(() => _linkFromId = null);
+      _showNotice(
+        'Only that step’s owner or the master can change what it '
+        'depends on.',
+      );
+      return;
+    }
     try {
       _controller.addDependency(toId, fromId);
       HapticFeedback.mediumImpact();
@@ -552,6 +874,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   }
 
   void _delete(String id) {
+    if (!_canEdit(id)) return;
     final title = _plan.steps[id]?.title;
     final before = _controller.deleteStep(id);
     setState(() => _selectedId = null);
@@ -717,9 +1040,19 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   // Shell ---------------------------------------------------------------------
 
   Widget _buildSidebar(Palette p) {
-    Widget item(String label, bool selected, VoidCallback onTap) => Padding(
+    Widget item(
+      String label,
+      bool selected,
+      VoidCallback onTap, {
+      int count = 0,
+    }) => Padding(
       padding: const EdgeInsets.only(bottom: 2),
-      child: _SidebarItem(label: label, selected: selected, onTap: onTap),
+      child: _SidebarItem(
+        label: label,
+        selected: selected,
+        onTap: onTap,
+        count: count,
+      ),
     );
     return GlassPanel(
       radius: 24,
@@ -734,23 +1067,46 @@ class _ClassroomScreenState extends State<ClassroomScreen>
               style: TypeRamp.title(p.ink).copyWith(fontSize: 22),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
-            child: Text('Classrooms', style: TypeRamp.caption(p.inkFaint)),
-          ),
-          for (var i = 0; i < _planNames.length; i++)
-            item(_planNames[i], i == _planIndex, () => _switchPlan(i)),
-          const Spacer(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Text(
-              'Prototype. All plans here are sample data.',
-              style: TypeRamp.caption(p.inkFaint),
+          if (widget.session == null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+              child: Text('Classrooms', style: TypeRamp.caption(p.inkFaint)),
             ),
-          ),
+          if (widget.session == null) ...[
+            for (var i = 0; i < _planNames.length; i++)
+              item(_planNames[i], i == _planIndex, () => _switchPlan(i)),
+            const Spacer(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Text(
+                'Prototype. All plans here are sample data.',
+                style: TypeRamp.caption(p.inkFaint),
+              ),
+            ),
+          ] else ...[
+            item('Dashboard', false, () => Navigator.of(context).maybePop()),
+            const SizedBox(height: 14),
+            for (final (label, count, action) in _classroomActions())
+              item(label, false, action, count: count),
+            const Spacer(),
+            item('Your profile', false, _showProfile),
+          ],
         ],
       ),
     );
+  }
+
+  /// Everything to do with the open classroom, for the sidebar and the menu.
+  List<(String, int, VoidCallback)> _classroomActions() {
+    final individual = _room?.individual ?? false;
+    return [
+      if (_manages) ('Phases', 0, _showPhases),
+      if (!individual) ('Members and invite code', 0, _showMembers),
+      if (!individual) ('Since you were away', _unread, _showAwayNews),
+      if (!individual) ('Activity', 0, _showActivity),
+      if (_isMaster) ('Settings', 0, _showSettings),
+      if (!individual) ('Leave classroom', 0, _leaveClassroom),
+    ];
   }
 
   Widget _buildToolbar(Palette p) {
@@ -894,6 +1250,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   String get _nextHeadline {
     final next = _plan.nextStepFor(_plan.meId);
     if (next != null) return 'Next: ${next.title}';
+    if (_plan.steps.isEmpty) return 'No steps yet';
     final left = _plan.steps.values.any(
       (s) => s.ownerId == _plan.meId && s.status != StepStatus.done,
     );
@@ -1052,6 +1409,27 @@ class _ClassroomScreenState extends State<ClassroomScreen>
             onTap: () => _camera.fit(fitPadding),
           ),
           _keyButton(44),
+          if (widget.session != null) ...[
+            CountBadge(
+              count: _unread,
+              child: PressButton(
+                label: _unread > 0 ? 'More, $_unread new' : 'More',
+                icon: CupertinoIcons.ellipsis_circle,
+                iconOnly: true,
+                quiet: true,
+                height: 44,
+                onTap: _showMore,
+              ),
+            ),
+            PressButton(
+              label: 'Your profile',
+              icon: CupertinoIcons.person_crop_circle,
+              iconOnly: true,
+              quiet: true,
+              height: 44,
+              onTap: _showProfile,
+            ),
+          ],
         ],
       ),
     );
@@ -1059,15 +1437,63 @@ class _ClassroomScreenState extends State<ClassroomScreen>
 
   /// A floating capsule, so the plan carries on underneath it.
   Widget _buildTabBar(Palette p, double width) {
-    const tabs = [
+    const views = [
       (PlanView.graph, CupertinoIcons.flowchart, 'Flowspace'),
       (PlanView.timeline, CupertinoIcons.chart_bar, 'Timeline'),
       (PlanView.list, CupertinoIcons.list_bullet, 'List'),
     ];
+    final session = widget.session != null;
+    final tabs = views.length + (session ? 2 : 0);
     final reduce = MediaQuery.disableAnimationsOf(context);
+    final barWidth = math.min(session ? 420.0 : _tabBarWidth, width - 24);
+
+    Widget tab(
+      String label,
+      IconData icon,
+      bool selected,
+      VoidCallback onTap, {
+      int count = 0,
+    }) => Expanded(
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: count > 0 ? '$label, $count new' : label,
+        excludeSemantics: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CountBadge(
+                count: count,
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: selected ? p.ink : p.inkSoft,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                label,
+                maxLines: 1,
+                textScaler: MediaQuery.textScalerOf(context)
+                    .clamp(maxScaleFactor: 1.15),
+                style: TypeRamp.caption(selected ? p.ink : p.inkSoft)
+                    .copyWith(fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
     return Positioned(
-      left: (width - math.min(_tabBarWidth, width - 24)) / 2,
-      width: math.min(_tabBarWidth, width - 24),
+      left: (width - barWidth) / 2,
+      width: barWidth,
       bottom: MediaQuery.paddingOf(context).bottom + kPaneGap,
       height: _tabBarHeight,
       child: GlassPanel(
@@ -1076,13 +1502,13 @@ class _ClassroomScreenState extends State<ClassroomScreen>
         child: Stack(
           children: [
             AnimatedAlign(
-              alignment: Alignment(_view.index - 1.0, 0),
+              alignment: Alignment(-1 + 2 * _view.index / (tabs - 1), 0),
               duration: reduce
                   ? Duration.zero
                   : const Duration(milliseconds: 240),
               curve: Curves.easeOutCubic,
               child: FractionallySizedBox(
-                widthFactor: 1 / tabs.length,
+                widthFactor: 1 / tabs,
                 heightFactor: 1,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -1096,42 +1522,28 @@ class _ClassroomScreenState extends State<ClassroomScreen>
             ),
             Row(
               children: [
-                for (final (view, icon, label) in tabs)
-                  Expanded(
-                    child: Semantics(
-                      button: true,
-                      selected: _view == view,
-                      label: label,
-                      excludeSemantics: true,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          HapticFeedback.selectionClick();
-                          setState(() => _view = view);
-                        },
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              icon,
-                              size: 20,
-                              color: _view == view ? p.ink : p.inkSoft,
-                            ),
-                            const SizedBox(height: 1),
-                            Text(
-                              label,
-                              maxLines: 1,
-                              textScaler: MediaQuery.textScalerOf(context)
-                                  .clamp(maxScaleFactor: 1.15),
-                              style: TypeRamp.caption(
-                                _view == view ? p.ink : p.inkSoft,
-                              ).copyWith(fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                for (final (view, icon, label) in views)
+                  tab(
+                    label,
+                    icon,
+                    _view == view,
+                    () => setState(() => _view = view),
                   ),
+                if (session) ...[
+                  tab(
+                    'More',
+                    CupertinoIcons.ellipsis_circle,
+                    false,
+                    _showMore,
+                    count: _unread,
+                  ),
+                  tab(
+                    'Profile',
+                    CupertinoIcons.person_crop_circle,
+                    false,
+                    _showProfile,
+                  ),
+                ],
               ],
             ),
           ],
@@ -1141,6 +1553,10 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   }
 
   void _showClassroomSheet() {
+    if (widget.session != null) {
+      unawaited(_switchClassroom());
+      return;
+    }
     showCupertinoModalPopup<void>(
       context: context,
       builder: (context) => CupertinoActionSheet(
@@ -1160,6 +1576,61 @@ class _ClassroomScreenState extends State<ClassroomScreen>
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
+        ),
+      ),
+    );
+  }
+
+  /// The classroom's name switches classrooms, and nothing else.
+  Future<void> _switchClassroom() async {
+    final session = widget.session!;
+    final List<Classroom> rooms;
+    try {
+      rooms = await session.backend.classrooms().first;
+    } on Object {
+      _showNotice('Your classrooms couldn’t load. Please retry.');
+      return;
+    }
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    unawaited(
+      showCupertinoModalPopup<void>(
+        context: context,
+        builder: (context) => CupertinoActionSheet(
+          title: const Text('Switch classroom'),
+          actions: [
+            for (final room in rooms)
+              CupertinoActionSheetAction(
+                isDefaultAction: room.id == session.classroomId,
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  if (room.id == session.classroomId) return;
+                  navigator.pushReplacement(
+                    CupertinoPageRoute<void>(
+                      builder: (_) => ClassroomScreen(
+                        onBrightnessChanged: widget.onBrightnessChanged,
+                        session: ClassroomSession(
+                          backend: session.backend,
+                          classroomId: room.id,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                child: Text(room.title),
+              ),
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(context).pop();
+                navigator.maybePop();
+              },
+              child: const Text('Dashboard'),
+            ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
         ),
       ),
     );
@@ -1185,7 +1656,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           clipBehavior: Clip.hardEdge,
           children: [
             Positioned.fill(child: _buildPlanView(p, panelOpen, narrow, shell)),
-            if (_view == PlanView.graph) ...[
+            if (_view == PlanView.graph && _plan.steps.isNotEmpty) ...[
               if (!short && (_activeEdge == null || showMap))
                 _buildNextCard(p, phone, panelOpen, shell, stripEnd),
               if (_activeEdge != null)
@@ -1256,10 +1727,69 @@ class _ClassroomScreenState extends State<ClassroomScreen>
                   ),
                 ),
               ),
+            if (widget.session != null && _plan.steps.isEmpty)
+              Positioned(
+                left: gutterEnd,
+                top: stripEnd,
+                right: shell.right,
+                bottom: shell.bottom,
+                child: _buildEmptyPlan(p),
+              ),
             _buildNotice(p, narrow, shell, gutterEnd),
           ],
         );
       },
+    );
+  }
+
+  /// A new classroom, or one still loading, in place of an empty map.
+  Widget _buildEmptyPlan(Palette p) {
+    final String text;
+    final String? action;
+    if (_stored == null) {
+      return const Center(child: CupertinoActivityIndicator());
+    } else if (_plan.phases.isEmpty) {
+      text = _manages
+          ? 'Start with the big stages of the work. Add them as phases, then '
+                'fill each with steps.'
+          : 'The master hasn’t added any phases yet.';
+      action = _manages ? 'Add phases' : null;
+    } else {
+      text = 'No steps yet. Add what needs doing, who’s doing it and when.';
+      action = 'Add a step';
+    }
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: GlassPanel(
+            radius: 24,
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: TypeRamp.body(p.ink),
+                ),
+                if (action != null) ...[
+                  const SizedBox(height: 14),
+                  PressButton(
+                    label: action,
+                    prominent: true,
+                    height: 44,
+                    expand: true,
+                    onTap: _plan.phases.isEmpty ? _showPhases : _addStep,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1278,7 +1808,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       onStart: () => _controller.setStatus(step.id, StepStatus.doing),
       onReopen: () => _controller.setStatus(step.id, StepStatus.todo),
       onHandOver: (ownerId) {
-        if (ownerId == step.ownerId) return;
+        if (ownerId == step.ownerId || !_canEdit(step.id)) return;
         _controller.handOver(step.id, ownerId);
         _showNotice('Handed to ${_plan.member(ownerId).name}');
       },
@@ -1286,6 +1816,12 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       onRemoveDependency: (id) => _controller.removeDependency(step.id, id),
       onToggleChecklist: (i) => _controller.toggleChecklist(step.id, i),
       onDelete: () => _delete(step.id),
+      editable: widget.session == null || _canEdit(step.id),
+      approvals: _room?.approvalRequired ?? false,
+      canApprove: _room != null && _manages,
+      onApprove: () => _controller.setStatus(step.id, StepStatus.done),
+      onSendBack: () => _controller.setStatus(step.id, StepStatus.doing),
+      onEdit: widget.session == null ? null : () => _editStep(step),
     );
   }
 
@@ -1295,6 +1831,10 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     bool narrow,
     EdgeInsets shell,
   ) {
+    // An empty plan has no dates to chart or rows to list.
+    if (_plan.steps.isEmpty && _view != PlanView.graph) {
+      return const SizedBox.shrink();
+    }
     switch (_view) {
       case PlanView.graph:
         return GraphView(
@@ -1332,6 +1872,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           onViewportReady: _frameInitialView,
           onFitPhase: _fitPhase,
           onToggleDirection: _toggleDirection,
+          canEdit: widget.session == null ? null : _canEdit,
         );
       case PlanView.timeline:
         return Padding(
@@ -1509,7 +2050,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           ),
         ),
       );
-      final left = shell.left + 96;
+      final left = shell.left + (widget.session == null ? 96 : 140);
       final bottom = shell.bottom + kPaneGap;
       return Positioned(
         left: left,
@@ -1553,6 +2094,15 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           direction: Axis.horizontal,
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.session != null)
+              PressButton(
+                label: 'Add a step',
+                icon: CupertinoIcons.plus,
+                iconOnly: true,
+                quiet: true,
+                height: 44,
+                onTap: _addStep,
+              ),
             PressButton(
               label: 'Show the whole plan',
               icon: CupertinoIcons.arrow_up_left_arrow_down_right,
@@ -1594,6 +2144,15 @@ class _ClassroomScreenState extends State<ClassroomScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (widget.session != null)
+                  PressButton(
+                    label: 'Add a step',
+                    icon: CupertinoIcons.plus_circle,
+                    iconOnly: true,
+                    quiet: true,
+                    height: 36,
+                    onTap: _addStep,
+                  ),
                 PressButton(
                   label: 'Zoom in',
                   icon: CupertinoIcons.plus,
@@ -2046,11 +2605,15 @@ class _SidebarItem extends StatefulWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.count = 0,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+
+  /// Changes waiting to be seen, shown as a red number.
+  final int count;
 
   @override
   State<_SidebarItem> createState() => _SidebarItemState();
@@ -2065,7 +2628,9 @@ class _SidebarItemState extends State<_SidebarItem> {
     return Semantics(
       button: true,
       selected: widget.selected,
-      label: widget.label,
+      label: widget.count > 0
+          ? '${widget.label}, ${widget.count} new'
+          : widget.label,
       excludeSemantics: true,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
@@ -2082,13 +2647,25 @@ class _SidebarItemState extends State<_SidebarItem> {
                   ? p.control
                   : (_hovered ? p.hairline : const Color(0x00000000)),
             ),
-            child: Text(
-              widget.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TypeRamp.label(
-                widget.selected ? p.ink : p.inkSoft,
-              ).weighted(widget.selected ? FontWeight.w600 : FontWeight.w500),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TypeRamp.label(widget.selected ? p.ink : p.inkSoft)
+                        .weighted(
+                          widget.selected ? FontWeight.w600 : FontWeight.w500,
+                        ),
+                  ),
+                ),
+                if (widget.count > 0)
+                  CountBadge(
+                    count: widget.count,
+                    child: const SizedBox(width: 15, height: 10),
+                  ),
+              ],
             ),
           ),
         ),

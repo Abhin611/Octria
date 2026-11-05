@@ -132,6 +132,10 @@ class PlanController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Takes in a newer copy of the plan, such as someone else's edit. Steps glide
+  /// to any new places, and the camera stays put.
+  void adopt(Plan next) => _apply(next);
+
   /// Applies an edit. The layout runs off the main thread where the platform
   /// has one, so big plans don't freeze. [droppedAt] starts a dragged node from
   /// where the finger left it.

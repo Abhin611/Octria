@@ -157,7 +157,7 @@ Plan campusEventsPlan() {
         'design',
         'ben',
         'Design event card',
-        doing,
+        StepStatus.review,
         ['flows'],
         8,
         -10,

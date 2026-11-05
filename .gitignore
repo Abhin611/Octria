@@ -50,3 +50,29 @@ app.*.map.json
 # Local design tool settings and review screenshots
 .impeccable/config.local.json
 .impeccable/review/
+
+# Rules test tools and emulator logs
+node_modules/
+*-debug.log
+.firebase/
+
+# Secrets and per-project config. Never commit these: see README, "Your own
+# keys and secrets". Each person who runs this project generates their own.
+/lib/firebase_options.dart
+/android/app/google-services.json
+/ios/Runner/GoogleService-Info.plist
+/macos/Runner/GoogleService-Info.plist
+/ios/firebase_app_id_file.json
+/macos/firebase_app_id_file.json
+.firebaserc
+.env
+.env.*
+*.pem
+*.p12
+*.p8
+*.jks
+*.keystore
+key.properties
+*service-account*.json
+*serviceAccount*.json
+*-adminsdk-*.json

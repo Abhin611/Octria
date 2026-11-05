@@ -23,6 +23,12 @@ class StepPanel extends StatelessWidget {
     required this.onRemoveDependency,
     required this.onToggleChecklist,
     required this.onDelete,
+    this.editable = true,
+    this.approvals = false,
+    this.canApprove = false,
+    this.onApprove,
+    this.onSendBack,
+    this.onEdit,
   });
 
   final Plan plan;
@@ -39,6 +45,16 @@ class StepPanel extends StatelessWidget {
   final ValueChanged<int> onToggleChecklist;
   final VoidCallback onDelete;
 
+  /// Whether this person may change this step. Everyone can see it regardless.
+  final bool editable;
+
+  /// Whether finished steps wait for approval in this classroom.
+  final bool approvals;
+  final bool canApprove;
+  final VoidCallback? onApprove;
+  final VoidCallback? onSendBack;
+  final VoidCallback? onEdit;
+
   @override
   Widget build(BuildContext context) {
     final p = Palette.of(context);
@@ -50,6 +66,7 @@ class StepPanel extends StatelessWidget {
         .whereType<PlanStep>()
         .toList();
     final isDone = step.status == StepStatus.done;
+    final waitsForApproval = approvals && step.status == StepStatus.review;
 
     Widget sectionLabel(String text) => Padding(
       padding: const EdgeInsets.only(top: 22, bottom: 8),
@@ -106,7 +123,38 @@ class StepPanel extends StatelessWidget {
                 Text(step.description, style: TypeRamp.body(p.ink)),
               ],
               const SizedBox(height: 18),
-              if (!isDone && step.status == StepStatus.todo && open.isNotEmpty)
+              if (waitsForApproval && canApprove) ...[
+                PressButton(
+                  label: 'Approve',
+                  icon: CupertinoIcons.checkmark_alt,
+                  prominent: true,
+                  height: 44,
+                  expand: true,
+                  onTap: onApprove,
+                ),
+                const SizedBox(height: 4),
+                PressButton(
+                  label: 'Send back',
+                  quiet: true,
+                  height: 44,
+                  expand: true,
+                  onTap: onSendBack,
+                ),
+              ] else if (waitsForApproval)
+                Text(
+                  'Waiting for the master or co-master to approve this.',
+                  style: TypeRamp.label(p.inkSoft),
+                )
+              else if (!editable)
+                Text(
+                  'This is ${plan.member(step.ownerId).name}’s step. You can '
+                  'look, and only they or the master can change it.',
+                  style: TypeRamp.label(p.inkSoft),
+                ),
+              if (editable &&
+                  !isDone &&
+                  step.status == StepStatus.todo &&
+                  open.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Text(
@@ -115,7 +163,7 @@ class StepPanel extends StatelessWidget {
                     style: TypeRamp.label(p.inkSoft),
                   ),
                 ),
-              if (!isDone && step.status == StepStatus.todo) ...[
+              if (editable && !isDone && step.status == StepStatus.todo) ...[
                 PressButton(
                   label: open.isEmpty ? 'Start step' : 'Start anyway',
                   prominent: true,
@@ -133,7 +181,10 @@ class StepPanel extends StatelessWidget {
                   onTap: onMarkDone,
                 ),
               ],
-              if (!isDone && step.status != StepStatus.todo)
+              if (editable &&
+                  !isDone &&
+                  !waitsForApproval &&
+                  step.status != StepStatus.todo)
                 touch
                     ? SwipeToDone(
                         label: 'Slide to mark done',
@@ -154,7 +205,7 @@ class StepPanel extends StatelessWidget {
                         expand: true,
                         onTap: onMarkDone,
                       ),
-              if (isDone)
+              if (editable && isDone)
                 PressButton(
                   label: 'Reopen step',
                   height: 44,
@@ -168,7 +219,7 @@ class StepPanel extends StatelessWidget {
                     plan: plan,
                     step: d,
                     onOpen: () => onOpenStep(d.id),
-                    onRemove: () => onRemoveDependency(d.id),
+                    onRemove: editable ? () => onRemoveDependency(d.id) : null,
                   ),
               ],
               if (step.checklist.isNotEmpty) ...[
@@ -178,7 +229,7 @@ class StepPanel extends StatelessWidget {
                 for (var i = 0; i < step.checklist.length; i++)
                   _ChecklistRow(
                     item: step.checklist[i],
-                    onToggle: () => onToggleChecklist(i),
+                    onToggle: editable ? () => onToggleChecklist(i) : null,
                   ),
               ],
               sectionLabel('Study materials'),
@@ -220,7 +271,7 @@ class StepPanel extends StatelessWidget {
                     SelectChip(
                       label: m.name,
                       selected: m.id == step.ownerId,
-                      onTap: () => onHandOver(m.id),
+                      onTap: editable ? () => onHandOver(m.id) : () {},
                     ),
                 ],
               ),
@@ -229,17 +280,29 @@ class StepPanel extends StatelessWidget {
                 for (final d in dependents)
                   _LinkRow(plan: plan, step: d, onOpen: () => onOpenStep(d.id)),
               ],
-              // Kept apart on purpose: nothing common sits near this.
-              const SizedBox(height: 56),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: PressButton(
-                  label: 'Delete step',
-                  destructive: true,
-                  quiet: true,
-                  onTap: onDelete,
+              if (editable && onEdit != null) ...[
+                const SizedBox(height: 22),
+                PressButton(
+                  label: 'Edit step',
+                  icon: CupertinoIcons.pencil,
+                  height: 44,
+                  expand: true,
+                  onTap: onEdit,
                 ),
-              ),
+              ],
+              // Kept apart on purpose: nothing common sits near this.
+              if (editable) ...[
+                const SizedBox(height: 56),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: PressButton(
+                    label: 'Delete step',
+                    destructive: true,
+                    quiet: true,
+                    onTap: onDelete,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -262,7 +325,7 @@ class _ChecklistRow extends StatelessWidget {
   const _ChecklistRow({required this.item, required this.onToggle});
 
   final ChecklistItem item;
-  final VoidCallback onToggle;
+  final VoidCallback? onToggle;
 
   @override
   Widget build(BuildContext context) {

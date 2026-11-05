@@ -1,10 +1,10 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 
 import '../theme/tokens.dart';
 
@@ -195,25 +195,91 @@ class _GlassRimPainter extends CustomPainter {
       old.radius != radius || old.top != top || old.bottom != bottom;
 }
 
-/// The still, soft colour the whole app sits on. It never moves, so it costs
-/// nothing after the first frame and can't distract.
-class AmbientBackdrop extends StatelessWidget {
+/// What the whole app sits on: warm glows that stay put, and a slow orange globe
+/// turning in the middle. The globe holds still when someone has asked for less
+/// motion or the device can't keep up, and goes away with more contrast.
+class AmbientBackdrop extends StatefulWidget {
   const AmbientBackdrop({super.key});
+
+  @override
+  State<AmbientBackdrop> createState() => _AmbientBackdropState();
+}
+
+class _AmbientBackdropState extends State<AmbientBackdrop>
+    with SingleTickerProviderStateMixin {
+  // One turn of the globe. Slow enough that a low frame rate can't be seen,
+  // which keeps the glass above it cheap.
+  static const _turn = Duration(seconds: 90);
+  static const _frame = Duration(milliseconds: 42);
+
+  final _time = ValueNotifier<double>(0);
+  late final Ticker _ticker = createTicker(_tick);
+  Duration _drawn = Duration.zero;
+
+  void _tick(Duration now) {
+    if (now - _drawn < _frame) return;
+    _drawn = now;
+    _time.value = now.inMicroseconds / _turn.inMicroseconds % 1;
+  }
+
+  void _sync() {
+    final still =
+        MediaQuery.disableAnimationsOf(context) ||
+        MediaQuery.highContrastOf(context) ||
+        GlassBudget.lite.value;
+    if (still) {
+      _ticker.stop();
+    } else if (!_ticker.isActive) {
+      _drawn = Duration.zero;
+      _ticker.start();
+    }
+  }
+
+  void _onBudget() {
+    if (mounted) _sync();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    GlassBudget.watch();
+    GlassBudget.lite.addListener(_onBudget);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _sync();
+  }
+
+  @override
+  void dispose() {
+    GlassBudget.lite.removeListener(_onBudget);
+    _ticker.dispose();
+    _time.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final p = Palette.of(context);
     final plain = MediaQuery.highContrastOf(context);
-    return RepaintBoundary(
-      child: AnimatedSwitcher(
-        duration: MediaQuery.disableAnimationsOf(context)
-            ? Duration.zero
-            : const Duration(milliseconds: 320),
-        child: CustomPaint(
-          key: ValueKey(p.brightness),
-          size: Size.infinite,
-          painter: _AmbientPainter(p, plain),
-        ),
+    return AnimatedSwitcher(
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 320),
+      child: Stack(
+        key: ValueKey(p.brightness),
+        fit: StackFit.expand,
+        children: [
+          RepaintBoundary(
+            child: CustomPaint(painter: _AmbientPainter(p, plain)),
+          ),
+          if (!plain)
+            RepaintBoundary(
+              child: CustomPaint(painter: _GlobePainter(p, _time)),
+            ),
+        ],
       ),
     );
   }
@@ -229,7 +295,7 @@ class _AmbientPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = p.ground);
     if (plain) return;
-    final reach = size.longestSide * 0.72;
+    final reach = size.longestSide * 0.62;
     void glow(double x, double y, Color colour) {
       final c = Offset(size.width * x, size.height * y);
       canvas.drawCircle(
@@ -246,10 +312,122 @@ class _AmbientPainter extends CustomPainter {
     glow(0.12, 0.08, p.ambientA);
     glow(0.92, 0.28, p.ambientB);
     glow(0.38, 0.98, p.ambientC);
+    // A fine grid of points, so large empty areas read as made, not missing.
+    final dot = Paint()
+      ..color = (p.brightness == Brightness.dark
+          ? const Color(0x14FFB070)
+          : const Color(0x142B1A0A))
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    const step = 26.0;
+    canvas.drawPoints(ui.PointMode.points, [
+      for (var x = step / 2; x < size.width; x += step)
+        for (var y = step / 2; y < size.height; y += step) Offset(x, y),
+    ], dot);
   }
 
   @override
   bool shouldRepaint(_AmbientPainter old) => old.p != p || old.plain != plain;
+}
+
+/// A globe of fine orange lines with a soft light inside it, turning slowly.
+class _GlobePainter extends CustomPainter {
+  _GlobePainter(this.p, this.time) : super(repaint: time);
+
+  final Palette p;
+  final ValueListenable<double> time;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final t = time.value;
+    final dark = p.brightness == Brightness.dark;
+    final radius = (size.shortestSide * 0.42).clamp(150.0, 400.0);
+    final centre = Offset(size.width / 2, size.height * 0.48);
+    final full = math.pi * 2;
+
+    // The light inside, breathing once every 15 seconds.
+    final breath = 0.5 + 0.5 * math.sin(t * full * 6);
+    final lightReach = radius * (1.5 + 0.08 * breath);
+    canvas.drawCircle(
+      centre,
+      lightReach,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          centre,
+          lightReach,
+          [
+            p.orb.withValues(alpha: (dark ? 0.15 : 0.12) + 0.04 * breath),
+            p.orb.withValues(alpha: dark ? 0.05 : 0.04),
+            p.orb.withValues(alpha: 0),
+          ],
+          [0, 0.45, 1],
+        ),
+    );
+
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final strength = dark ? 0.22 : 0.2;
+
+    canvas.save();
+    canvas.translate(centre.dx, centre.dy);
+    canvas.rotate(-0.38);
+
+    // Lines of longitude, sliding round as the globe turns.
+    const meridians = 9;
+    for (var i = 0; i < meridians; i++) {
+      final angle = t * full + i * math.pi / meridians;
+      final across = math.cos(angle);
+      line.color = p.orb.withValues(
+        alpha: strength * (0.45 + 0.55 * across.abs()),
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset.zero,
+          width: radius * 2 * across.abs(),
+          height: radius * 2,
+        ),
+        line,
+      );
+    }
+
+    // Lines of latitude, seen from a little above.
+    line.color = p.orb.withValues(alpha: strength * 0.7);
+    for (var i = -3; i <= 3; i++) {
+      final lat = i * math.pi / 8;
+      final across = math.cos(lat) * radius * 2;
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(0, math.sin(lat) * radius),
+          width: across,
+          height: across * 0.26,
+        ),
+        line,
+      );
+    }
+    canvas.restore();
+
+    // Two broken rings around it, drifting opposite ways.
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..color = p.orb.withValues(alpha: strength * 1.1);
+    void arcs(double scale, double width, double start, List<double> sweeps) {
+      ring.strokeWidth = width;
+      final rect = Rect.fromCircle(center: centre, radius: radius * scale);
+      var at = start * full;
+      for (final sweep in sweeps) {
+        canvas.drawArc(rect, at, sweep, false, ring);
+        at += full / sweeps.length;
+      }
+    }
+
+    arcs(1.12, 1.6, t * 2, const [1.5, 0.7, 1.1]);
+    arcs(1.2, 1, -t * 3, const [0.5, 1.2, 0.3, 0.9]);
+  }
+
+  @override
+  bool shouldRepaint(_GlobePainter old) => old.p != p;
 }
 
 /// A button whose feedback lands on the press, not the release.
@@ -387,6 +565,135 @@ class _PressButtonState extends State<PressButton> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A red number raised over the corner of something, like on a phone's app icon.
+/// Shows nothing at zero.
+class CountBadge extends StatelessWidget {
+  const CountBadge({super.key, required this.count, required this.child});
+
+  final int count;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (count <= 0) return child;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        child,
+        Positioned(
+          top: -5,
+          right: -5,
+          child: IgnorePointer(child: _Count(count)),
+        ),
+      ],
+    );
+  }
+}
+
+class _Count extends StatelessWidget {
+  const _Count(this.count);
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(minWidth: 20),
+    height: 20,
+    padding: const EdgeInsets.symmetric(horizontal: 5),
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: const Color(0xFFE5262B),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Text(
+      count > 99 ? '99+' : '$count',
+      textScaler: TextScaler.noScaling,
+      style: const TextStyle(
+        fontFamily: TypeRamp.family,
+        fontSize: 12,
+        height: 1.1,
+        fontWeight: FontWeight.w700,
+        fontVariations: [FontVariation('wght', 700)],
+        color: Color(0xFFFFFFFF),
+        decoration: TextDecoration.none,
+      ),
+    ),
+  );
+}
+
+/// A labelled text field that reads well on glass.
+class GlassField extends StatelessWidget {
+  const GlassField({
+    super.key,
+    required this.label,
+    required this.controller,
+    this.obscureText = false,
+    this.keyboardType,
+    this.maxLines = 1,
+    this.autofillHints,
+    this.textCapitalization = TextCapitalization.sentences,
+    this.onSubmitted,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final bool obscureText;
+  final TextInputType? keyboardType;
+  final int maxLines;
+  final Iterable<String>? autofillHints;
+  final TextCapitalization textCapitalization;
+  final ValueChanged<String>? onSubmitted;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Palette.of(context);
+    final field = Semantics(
+      label: label,
+      textField: true,
+      child: CupertinoTextField(
+        controller: controller,
+        placeholder: label,
+        obscureText: obscureText,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
+        minLines: 1,
+        autofillHints: autofillHints,
+        textCapitalization: keyboardType == null && !obscureText
+            ? textCapitalization
+            : TextCapitalization.none,
+        onSubmitted: onSubmitted,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        style: TypeRamp.body(p.ink),
+        placeholderStyle: TypeRamp.body(p.inkFaint),
+        cursorColor: p.ink,
+        decoration: BoxDecoration(
+          color: p.control,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: p.hairline),
+        ),
+      ),
+    );
+    // Once there's text the placeholder is gone, so the label moves above.
+    return ListenableBuilder(
+      listenable: controller,
+      child: field,
+      builder: (context, field) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (controller.text.isNotEmpty)
+            ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 14, bottom: 4),
+                child: Text(label, style: TypeRamp.caption(p.inkSoft)),
+              ),
+            ),
+          field!,
+        ],
       ),
     );
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -35,6 +37,7 @@ class GraphView extends StatefulWidget {
     required this.onViewportReady,
     required this.onFitPhase,
     required this.onToggleDirection,
+    this.canEdit,
   });
 
   final PlanController controller;
@@ -62,11 +65,67 @@ class GraphView extends StatefulWidget {
   final ValueChanged<String> onFitPhase;
   final VoidCallback onToggleDirection;
 
+  /// Whether this person may move a step. Everyone can, when left out.
+  final bool Function(String id)? canEdit;
+
   @override
   State<GraphView> createState() => _GraphViewState();
 }
 
-class _GraphViewState extends State<GraphView> {
+/// Above this many steps the graph arrives at once, and nothing loops.
+const int _motionLimit = 200;
+
+class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
+  late final AnimationController _reveal = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+  late final AnimationController _flow = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2200),
+  );
+
+  /// Decides what moves. Called when the plan or the settings change.
+  void _syncMotion() {
+    final still =
+        MediaQuery.disableAnimationsOf(context) ||
+        GlassBudget.lite.value ||
+        _controller.plan.steps.length > _motionLimit;
+    if (still) {
+      _flow.stop();
+      _flow.value = 0;
+    } else if (!_flow.isAnimating) {
+      unawaited(_flow.repeat());
+    }
+  }
+
+  void _onBudget() {
+    if (mounted) _syncMotion();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    GlassBudget.lite.addListener(_onBudget);
+  }
+
+  var _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncMotion();
+    if (_started) return;
+    _started = true;
+    if (MediaQuery.disableAnimationsOf(context) ||
+        _controller.plan.steps.length > _motionLimit ||
+        _controller.plan.steps.isEmpty) {
+      _reveal.value = 1;
+    } else {
+      unawaited(_reveal.forward());
+    }
+  }
+
   final TextCache _texts = TextCache();
   final FocusNode _focusNode = FocusNode(debugLabel: 'graph');
 
@@ -93,6 +152,9 @@ class _GraphViewState extends State<GraphView> {
 
   @override
   void dispose() {
+    GlassBudget.lite.removeListener(_onBudget);
+    _reveal.dispose();
+    _flow.dispose();
     _texts.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -244,6 +306,7 @@ class _GraphViewState extends State<GraphView> {
   }
 
   void _beginMove(String id, Offset local) {
+    if (widget.canEdit?.call(id) == false) return;
     final centre = _camera.toScreen(_controller.positions[id] ?? Offset.zero);
     _grabOffset = local - centre; // Stay under the finger where it was grabbed.
     setState(() {
@@ -565,6 +628,8 @@ class _GraphViewState extends State<GraphView> {
                         linkTo: _linkTo,
                         linkTargetId: _linkTargetId,
                         texts: _texts,
+                        reveal: _reveal,
+                        flow: _flow,
                       );
                       final strip = stripPaneFor(_camera);
                       final gutter = gutterPaneFor(_camera);
@@ -575,7 +640,14 @@ class _GraphViewState extends State<GraphView> {
                             CustomPaint(
                               size: size,
                               isComplex: true,
-                              painter: GraphPainter(scene, repaint: _camera),
+                              painter: GraphPainter(
+                                scene,
+                                repaint: Listenable.merge([
+                                  _camera,
+                                  _reveal,
+                                  _flow,
+                                ]),
+                              ),
                             ),
                             Positioned.fromRect(
                               rect: strip,

@@ -10,7 +10,7 @@ One product across Android, iOS and web, plus Windows, macOS and Linux desktop. 
 
 ## Stack
 
-Flutter (one codebase for every platform), Firebase Auth, Cloud Firestore, Cloud Functions, Firebase Cloud Messaging, Firebase Hosting, Google Drive API (`drive.file` scope), Gemini API free tier. Chosen in the planning document. Only the graph prototype is built so far, on sample data; Firebase, Drive and Gemini are not connected yet.
+Flutter (one codebase for every platform), Firebase Auth, Cloud Firestore, Cloud Functions, Firebase Cloud Messaging, Firebase Hosting, Google Drive API (`drive.file` scope), Gemini API free tier. Chosen in the planning document. The graph and the phase 2 core app (accounts, classrooms, invite codes, editing, approvals, activity log, security rules) are built and connected to Firebase for web and Android. The builder reported on 2026-11-06 that a real group ran a project on it, and that it passed on a cheap phone, with GitHub sign-in and offline. Drive and Gemini are not connected yet.
 
 ## Users
 
@@ -47,11 +47,13 @@ Positioning against named alternatives has not been decided.
 **In scope:**
 
 - Sign-in with Google, GitHub or email. Profile with skills, resume and linked GitHub; AI extracts skills from a resume for the user to confirm.
-- Classrooms: individual or group, invites by code or link, archive, reusable templates.
+- Classrooms: individual or group, invites by code or link, an optional setting that makes the master accept each person, leaving (a master's role passes to a co-master), deleting a classroom, archive, reusable templates.
+- Constraint description: an optional box when creating a classroom, and later in its settings, where people say what the plan must respect, such as "I have to study thermodynamics before waves". It can be left empty. It's saved from build phase 2, and the AI planner follows it from build phase 4.
 - AI planning: phases, steps, dependencies, estimates, skill-based work splitting, resource finding, re-planning and an in-classroom assistant. Dates are calculated from the deadline and hours per week, not guessed by the AI.
 - Flowspace, the node graph: flows left to right or top to bottom, switchable; three zoom levels (phases as large cards with a progress ring each, steps, full step card), member lanes, phases as columns, status-coloured dependency arrows, critical path, focus on me, graph or timeline toggle, filters, minimap, completion feedback, and change badges.
 - Steps: any step can be worked on in any order. Starting one with an unfinished dependency warns rather than blocks. Each step shows its description, checklist, skills, comments and study materials (files, links, videos, notes). Tapping a step listed under Needs or Unblocks always goes to that step.
 - Collaboration: comments, suggestions the owner accepts or dismisses, handing your own step to any member, notifications.
+- Profile numbers: classrooms, steps done, actions this week, hours of work done from step estimates, growth (steps finished this week against last) and an 8-week chart. These come from plans and activity; tracked time and the fuller growth map arrive in build phase 5.
 - Tracking: dashboard, active-time tracking with a 5-minute idle timeout, planned vs actual hours including overtime, contribution record, growth map, PDF report export.
 - Mock tests (build phase 4): each phase can end with a mock exam or mock interview generated from that phase's content, for any field. It's offered once a phase's steps are done, can be taken early or skipped, and never blocks the next phase. Results give a score, feedback on each answer and links to the steps worth revising. Each person sets their own difficulty (Easy, Medium or Hard), and the master can set one level for everyone until they clear it. Results are private by default, and each person can turn on sharing so everyone in the group can see theirs.
 - Practice links (build phase 3): a Practice section in every classroom, reachable at any time, links to mock interview sites, question banks and coding practice. The AI suggests links and anyone can add their own. Octria stores no copied questions and has no code runner.
