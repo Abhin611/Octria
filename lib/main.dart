@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'data/backend.dart';
+import 'data/demo_seed.dart';
 import 'data/firebase_backend.dart';
 import 'data/local_backend.dart';
 import 'firebase_options.dart';
@@ -30,6 +31,8 @@ Future<void> main() async {
 Future<Backend?> _connect() async {
   const choice = String.fromEnvironment('OCTRIA_BACKEND');
   if (choice == 'local') return LocalBackend();
+  // A ready-made classroom for trying comments, suggestions and notifications.
+  if (choice == 'demo') return demoBackend();
   if (choice == 'sample') return null;
   try {
     await Firebase.initializeApp(

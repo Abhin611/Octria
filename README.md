@@ -2,7 +2,7 @@
 
 A free, cross-platform app that turns any task into a classroom with a roadmap of phases and steps, shown as an interactive node graph called Flowspace.
 
-Phases 1 and 2, the Flowspace prototype and the core app, are complete. Kanvas, mock tests and the Ofy AI come in later phases.
+Phases 1 and 2, the Flowspace prototype and the core app, are complete. Phase 3 is done: collaboration, chats, handovers, practice links, in-app notifications with a count on the app icon, Kanvas (with image, PDF and video cards) and file libraries in each person's own Google Drive. Mock tests and the Ofy AI come in phase 4.
 
 ## Run it
 
@@ -86,7 +86,11 @@ In the console under Authentication, enable Email/Password and Google. For GitHu
 
 The client secret stays in Firebase. Don't put it in code, in a file here or in a chat.
 
-### 6. Android: sign-in and signing
+### 6. Turn on Google Drive for file libraries
+
+Files people add go in their own Google Drive, through the Google sign-in Firebase already uses, asking only for the `drive.file` scope (Octria sees just the files it put there). In the [Google Cloud console](https://console.cloud.google.com/apis/library/drive.googleapis.com), pick your Firebase project and enable the Google Drive API. Without it, adding a file says Drive isn't switched on. No key or client ID is needed in this repository.
+
+### 7. Android: sign-in and signing
 
 Create your own signing key, keep it and its passwords outside git, and back them up. Lose it and you can't update your app on the Play Store.
 
@@ -102,7 +106,7 @@ keytool -list -v -keystore ~/octria-release.jks -alias octria
 
 Debug and release builds sign with Flutter's debug key until you [set up release signing](https://docs.flutter.dev/deployment/android#sign-the-app). If you use that key for now, add its fingerprints as well.
 
-### 7. Host it and point invite links at your site
+### 8. Host it and point invite links at your site
 
 Invite links use the original site unless you set your own address when you build:
 

@@ -9,6 +9,7 @@ import '../widgets/controls.dart';
 import 'camera.dart';
 import 'graph_painter.dart';
 import 'plan_controller.dart';
+import '../widgets/hover_hint.dart';
 
 enum _Drag { none, pan, move, link }
 
@@ -38,7 +39,20 @@ class GraphView extends StatefulWidget {
     required this.onFitPhase,
     required this.onToggleDirection,
     this.canEdit,
+    this.onMemberTap,
+    this.onRequestHandover,
+    this.onHandleTap,
   });
+
+  /// The + beside a step was tapped, rather than dragged to link it.
+  final ValueChanged<String>? onHandleTap;
+
+  /// Someone tapped a person's round icon beside their lane.
+  final ValueChanged<String>? onMemberTap;
+
+  /// A step was dropped in someone else's lane by a person who has to ask
+  /// first. The step stays where it was.
+  final void Function(String stepId, String toUid)? onRequestHandover;
 
   final PlanController controller;
   final GraphCamera camera;
@@ -137,6 +151,12 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
 
   String? _hoveredId;
   bool _hoveringEdge = false;
+
+  /// What the pointer is resting on, when it's something drawn on the map
+  /// that needs explaining: a person's name, or the + on a step.
+  String? _hint;
+  Offset? _hintAt;
+  Timer? _hintTimer;
   String? _pressedId;
   String? _movingId;
   Offset? _movingAt;
@@ -153,6 +173,7 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
   @override
   void dispose() {
     GlassBudget.lite.removeListener(_onBudget);
+    _hintTimer?.cancel();
     _reveal.dispose();
     _flow.dispose();
     _texts.dispose();
@@ -303,6 +324,50 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
         _hoveringEdge = overEdge;
       });
     }
+    _hintFor(e.localPosition, handle);
+  }
+
+  /// Explains a person's name or a step's + after the pointer rests there.
+  void _hintFor(Offset local, String? handle) {
+    String? hint;
+    if (handle != null && widget.onHandleTap != null) {
+      hint = 'Send this step’s owner a study material, a board or a suggestion';
+    } else if (widget.onMemberTap != null) {
+      final inStrip = local.dy < stripEndFor(_camera);
+      final inGutter = local.dx < gutterEndFor(_camera);
+      final vertical = _controller.layout.vertical;
+      final onPerson = vertical ? inStrip && !inGutter : inGutter && !inStrip;
+      if (onPerson) {
+        final world = _camera.toWorld(local);
+        for (final band in _controller.layout.laneBands.entries) {
+          final inside = vertical
+              ? world.dx >= band.value.left && world.dx < band.value.right
+              : world.dy >= band.value.top && world.dy < band.value.bottom;
+          if (!inside) continue;
+          final plan = _controller.plan;
+          final name =
+              plan.members.where((m) => m.id == band.key).firstOrNull?.name ??
+              'them';
+          hint = band.key == plan.meId ? 'Your steps' : 'Chat with $name';
+          break;
+        }
+      }
+    }
+    if (hint == null) {
+      _hintTimer?.cancel();
+      if (_hint != null) setState(() => _hint = null);
+      return;
+    }
+    if (hint == _hint) return;
+    _hintTimer?.cancel();
+    _hintTimer = Timer(HoverHint.wait, () {
+      if (mounted) {
+        setState(() {
+          _hint = hint;
+          _hintAt = local;
+        });
+      }
+    });
   }
 
   void _beginMove(String id, Offset local) {
@@ -339,6 +404,22 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
     if (id == null || at == null) return;
     final step = _controller.plan.steps[id];
     if (step == null) return;
+    final ask = widget.onRequestHandover;
+    if (cell != null && cell.$2 != step.ownerId && ask != null) {
+      // The phase can change now; the person needs asking.
+      if (cell.$1 != step.phaseId) {
+        _controller.moveStep(
+          id,
+          phaseId: cell.$1,
+          ownerId: step.ownerId,
+          droppedAt: at,
+        );
+      } else {
+        _controller.settleFrom(id, at);
+      }
+      ask(id, cell.$2);
+      return;
+    }
     if (cell != null && (cell.$1 != step.phaseId || cell.$2 != step.ownerId)) {
       _controller.moveStep(
         id,
@@ -436,6 +517,12 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
       widget.onStartLink('');
       return;
     }
+    final handle = _hitHandle(d.localPosition);
+    final handleTap = widget.onHandleTap;
+    if (handle != null && handleTap != null) {
+      handleTap(handle);
+      return;
+    }
     // Tapping a phase's name, or its card when zoomed out, frames that phase.
     final inStrip = d.localPosition.dy < stripEndFor(_camera);
     final inGutter = d.localPosition.dx < gutterEndFor(_camera);
@@ -444,6 +531,23 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
         : inStrip && !inGutter;
     if (onPhaseName && _fitPhaseAt(d.localPosition)) {
       return;
+    }
+    final onPersonName = _controller.layout.vertical
+        ? inStrip && !inGutter
+        : inGutter && !inStrip;
+    final memberTap = widget.onMemberTap;
+    if (onPersonName && memberTap != null) {
+      final world = _camera.toWorld(d.localPosition);
+      final vertical = _controller.layout.vertical;
+      for (final band in _controller.layout.laneBands.entries) {
+        final inside = vertical
+            ? world.dx >= band.value.left && world.dx < band.value.right
+            : world.dy >= band.value.top && world.dy < band.value.bottom;
+        if (inside) {
+          memberTap(band.key);
+          return;
+        }
+      }
     }
     if (ZoomLevels(_camera.scale).phases > 0.5) {
       _fitPhaseAt(d.localPosition);
@@ -583,7 +687,13 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
               cursor: _cursor,
               onHover: _onHover,
               onExit: (_) {
-                if (_hoveredId != null) setState(() => _hoveredId = null);
+                _hintTimer?.cancel();
+                if (_hoveredId != null || _hint != null) {
+                  setState(() {
+                    _hoveredId = null;
+                    _hint = null;
+                  });
+                }
               },
               child: Listener(
                 onPointerDown: _onPointerDown,
@@ -671,6 +781,17 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
                                 headers: true,
                               ),
                             ),
+                            if (_hint != null && _hintAt != null)
+                              Positioned.fill(
+                                child: HintBubble.at(
+                                  anchor: Rect.fromCenter(
+                                    center: _hintAt!,
+                                    width: 24,
+                                    height: 24,
+                                  ),
+                                  message: _hint!,
+                                ),
+                              ),
                           ],
                         ),
                       );

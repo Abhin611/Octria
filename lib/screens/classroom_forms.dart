@@ -8,13 +8,18 @@ import '../data/models.dart';
 import '../model/plan.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
+import '../widgets/glass_menu.dart';
+import '../widgets/glass_motion.dart';
 import 'profile_stats.dart';
 
 /// Opens a form as a sheet of thick glass: rising from the bottom on a phone,
 /// centred on anything wider.
 Future<T?> showGlassSheet<T>(BuildContext context, WidgetBuilder builder) {
+  final back = SheetBack.take();
   return showCupertinoModalPopup<T>(
     context: context,
+    // A soft tint, not a blur: blurring the whole screen lingers and lags.
+    barrierColor: const Color(0x33000000),
     builder: (context) {
       final media = MediaQuery.of(context);
       final wide = media.size.width >= 600;
@@ -29,12 +34,16 @@ Future<T?> showGlassSheet<T>(BuildContext context, WidgetBuilder builder) {
           alignment: wide ? Alignment.center : Alignment.bottomCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
-            child: GlassPanel(
-              radius: 26,
-              weight: GlassWeight.thick,
-              child: DefaultTextStyle(
-                style: TypeRamp.body(Palette.of(context).ink),
-                child: builder(context),
+            child: GlassArrival(
+              child: GlassPanel(
+                radius: 28,
+                weight: GlassWeight.thick,
+                child: DefaultTextStyle(
+                  style: TypeRamp.body(Palette.of(context).ink),
+                  child: back == null
+                      ? builder(context)
+                      : SheetBackScope(onBack: back, child: builder(context)),
+                ),
               ),
             ),
           ),
@@ -44,9 +53,66 @@ Future<T?> showGlassSheet<T>(BuildContext context, WidgetBuilder builder) {
   );
 }
 
+/// Where a sheet opened from a menu goes back to. The menu arms it as it
+/// closes, and the next sheet to open takes it.
+abstract final class SheetBack {
+  static VoidCallback? _pending;
+  static DateTime? _at;
+
+  static void arm(VoidCallback back) {
+    _pending = back;
+    _at = DateTime.now();
+  }
+
+  static VoidCallback? take() {
+    final back = _pending;
+    final at = _at;
+    _pending = null;
+    _at = null;
+    if (back == null || at == null) return null;
+    // Only a sheet opened straight from the menu goes back to it.
+    if (DateTime.now().difference(at) > const Duration(seconds: 4)) return null;
+    return back;
+  }
+}
+
+/// Lets a sheet offer a Back button to the menu it came from.
+class SheetBackScope extends InheritedWidget {
+  const SheetBackScope({super.key, required this.onBack, required super.child});
+
+  final VoidCallback onBack;
+
+  static VoidCallback? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SheetBackScope>()?.onBack;
+
+  @override
+  bool updateShouldNotify(SheetBackScope old) => false;
+}
+
+/// A Back button for a sheet opened from a menu; nothing otherwise.
+Widget sheetBackButton(BuildContext context) {
+  final back = SheetBackScope.of(context);
+  if (back == null) return const SizedBox.shrink();
+  return Padding(
+    padding: const EdgeInsets.only(right: 2),
+    child: PressButton(
+      label: 'Back',
+      icon: CupertinoIcons.chevron_left,
+      iconOnly: true,
+      quiet: true,
+      height: 44,
+      onTap: () {
+        Navigator.of(context).pop();
+        back();
+      },
+    ),
+  );
+}
+
 /// A sheet's title, close button, scrolling body and message line.
-class _SheetFrame extends StatelessWidget {
-  const _SheetFrame({
+class SheetFrame extends StatelessWidget {
+  const SheetFrame({
+    super.key,
     required this.title,
     required this.children,
     this.action,
@@ -66,9 +132,15 @@ class _SheetFrame extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 8, 2),
+          padding: EdgeInsets.fromLTRB(
+            SheetBackScope.of(context) == null ? 20 : 8,
+            10,
+            8,
+            2,
+          ),
           child: Row(
             children: [
+              sheetBackButton(context),
               Expanded(
                 child: Semantics(
                   header: true,
@@ -275,7 +347,7 @@ class _CreateClassroomSheetState extends State<CreateClassroomSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return _SheetFrame(
+    return SheetFrame(
       title: 'New classroom',
       message: _message,
       action: PressButton(
@@ -431,7 +503,7 @@ class _JoinClassroomSheetState extends State<JoinClassroomSheet> {
   @override
   Widget build(BuildContext context) {
     if (_asked) {
-      return _SheetFrame(
+      return SheetFrame(
         title: 'Request sent',
         children: [
           Text(
@@ -442,7 +514,7 @@ class _JoinClassroomSheetState extends State<JoinClassroomSheet> {
         ],
       );
     }
-    return _SheetFrame(
+    return SheetFrame(
       title: 'Join a classroom',
       message: _message,
       action: PressButton(
@@ -528,7 +600,7 @@ class _ProfileSheetState extends State<ProfileSheet> {
   Widget build(BuildContext context) {
     final p = Palette.of(context);
     final email = widget.backend.currentUser?.email ?? '';
-    return _SheetFrame(
+    return SheetFrame(
       title: 'Your profile',
       message: _message,
       action: PressButton(
@@ -676,7 +748,7 @@ class _ClassroomSettingsSheetState extends State<ClassroomSettingsSheet> {
   @override
   Widget build(BuildContext context) {
     final p = Palette.of(context);
-    return _SheetFrame(
+    return SheetFrame(
       title: 'Classroom settings',
       message: _message,
       action: PressButton(
@@ -822,7 +894,7 @@ class _MembersSheetState extends State<MembersSheet> {
     final me = widget.backend.currentUser?.uid ?? '';
     final isMaster = _classroom.masterUid == me;
     final code = _classroom.inviteCode;
-    return _SheetFrame(
+    return SheetFrame(
       title: 'Members',
       message: _message,
       children: [
@@ -1153,7 +1225,7 @@ class _PhasesSheetState extends State<PhasesSheet> {
   @override
   Widget build(BuildContext context) {
     final p = Palette.of(context);
-    return _SheetFrame(
+    return SheetFrame(
       title: 'Phases',
       message: _message,
       children: [
@@ -1284,6 +1356,10 @@ class _StepEditorSheetState extends State<StepEditorSheet> {
       DateUtils.dateOnly(DateTime.now()).add(const Duration(days: 7));
   String? _message;
 
+  /// Only the person whose step it is writes its description.
+  bool get _writesDescription =>
+      (widget.step?.ownerId ?? _ownerId) == widget.plan.meId;
+
   static String _hoursText(double h) =>
       h == h.roundToDouble() ? '${h.round()}' : '$h';
 
@@ -1329,7 +1405,7 @@ class _StepEditorSheetState extends State<StepEditorSheet> {
             phaseId: _phaseId,
             ownerId: _ownerId,
             title: title,
-            description: _description.text.trim(),
+            description: _writesDescription ? _description.text.trim() : '',
             estimateHours: hours,
             start: start.isAfter(_due) ? _due : start,
             due: _due,
@@ -1340,7 +1416,9 @@ class _StepEditorSheetState extends State<StepEditorSheet> {
             phaseId: _phaseId,
             ownerId: _ownerId,
             title: title,
-            description: _description.text.trim(),
+            description: _writesDescription
+                ? _description.text.trim()
+                : existing.description,
             estimateHours: hours,
             start: start.isAfter(_due) ? _due : start,
             due: _due,
@@ -1352,7 +1430,7 @@ class _StepEditorSheetState extends State<StepEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final plan = widget.plan;
-    return _SheetFrame(
+    return SheetFrame(
       title: widget.step == null ? 'New step' : 'Edit step',
       message: _message,
       action: PressButton(
@@ -1365,11 +1443,17 @@ class _StepEditorSheetState extends State<StepEditorSheet> {
       children: [
         GlassField(label: 'What needs doing?', controller: _title),
         const SizedBox(height: 10),
-        GlassField(
-          label: 'Details (optional)',
-          controller: _description,
-          maxLines: 3,
-        ),
+        if (_writesDescription)
+          GlassField(
+            label: 'Description (optional)',
+            controller: _description,
+            maxLines: 3,
+          )
+        else
+          Text(
+            'Only the person whose step it is can write its description.',
+            style: TypeRamp.caption(Palette.of(context).inkSoft),
+          ),
         _label(context, 'Phase'),
         Wrap(
           spacing: 6,
@@ -1435,6 +1519,7 @@ class ActivitySheet extends StatefulWidget {
     this.newCount = 0,
     this.backend,
     this.classroomId,
+    this.detailOf,
   });
 
   final String title;
@@ -1444,6 +1529,9 @@ class ActivitySheet extends StatefulWidget {
   final int newCount;
   final Backend? backend;
   final String? classroomId;
+
+  /// A second line for an entry, such as which classroom it was in.
+  final String? Function(ActivityEntry)? detailOf;
 
   @override
   State<ActivitySheet> createState() => _ActivitySheetState();
@@ -1500,7 +1588,7 @@ class _ActivitySheetState extends State<ActivitySheet> {
   @override
   Widget build(BuildContext context) {
     final p = Palette.of(context);
-    return _SheetFrame(
+    return SheetFrame(
       title: widget.title,
       message: _message,
       children: [
@@ -1513,6 +1601,7 @@ class _ActivitySheetState extends State<ActivitySheet> {
           entries: _entries,
           empty: widget.empty,
           newCount: widget.newCount,
+          detailOf: widget.detailOf,
           onDelete: _editable ? _delete : null,
         ),
         if (_editable && _entries.isNotEmpty) ...[
@@ -1706,6 +1795,7 @@ class _ActivityCard extends StatelessWidget {
     ActivityKind.stepSentForApproval => p.review,
     ActivityKind.stepRemoved || ActivityKind.stepSentBack => p.blocked,
     ActivityKind.memberJoined => p.accentTeal,
+    ActivityKind.suggested || ActivityKind.suggestionAnswered => p.review,
     ActivityKind.stepHandedOver ||
     ActivityKind.dependencyChanged => p.accentViolet,
     _ => p.accent,
@@ -1725,6 +1815,10 @@ class _ActivityCard extends StatelessWidget {
     ActivityKind.dependencyChanged => CupertinoIcons.link,
     ActivityKind.phaseChanged => CupertinoIcons.square_stack_3d_up,
     ActivityKind.memberJoined => CupertinoIcons.person,
+    ActivityKind.commented => CupertinoIcons.chat_bubble,
+    ActivityKind.suggested => CupertinoIcons.lightbulb,
+    ActivityKind.suggestionAnswered => CupertinoIcons.hand_thumbsup,
+    ActivityKind.materialAdded => CupertinoIcons.paperclip,
   };
 
   @override
@@ -1803,7 +1897,7 @@ String hourLabel(int hour) {
 }
 
 /// One hour of a day: a label and a line down the side tying its entries together.
-class _HourGroup extends StatelessWidget {
+class _HourGroup extends StatefulWidget {
   const _HourGroup({
     required this.hour,
     required this.count,
@@ -1815,53 +1909,98 @@ class _HourGroup extends StatelessWidget {
   final List<Widget> children;
 
   @override
+  State<_HourGroup> createState() => _HourGroupState();
+}
+
+class _HourGroupState extends State<_HourGroup> {
+  var _open = true;
+
+  @override
   Widget build(BuildContext context) {
     final p = Palette.of(context);
+    final reduce = MediaQuery.disableAnimationsOf(context);
+    final words = widget.count == 1
+        ? '1 activity'
+        : '${widget.count} activities';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 2, bottom: 7),
-          child: Row(
-            children: [
-              Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                  color: p.accent,
-                  shape: BoxShape.circle,
-                ),
+        Semantics(
+          button: true,
+          expanded: _open,
+          label:
+              '${hourLabel(widget.hour)}, $words. '
+              '${_open ? 'Tap to fold away' : 'Tap to show'}',
+          excludeSemantics: true,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _open = !_open),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 7),
+              child: Row(
+                children: [
+                  Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: p.accent,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Text(
+                    hourLabel(widget.hour),
+                    style: TypeRamp.label(p.ink).weighted(FontWeight.w700),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(words, style: TypeRamp.caption(p.inkSoft)),
+                  const Spacer(),
+                  AnimatedRotation(
+                    turns: _open ? 0 : -0.25,
+                    duration: reduce
+                        ? Duration.zero
+                        : const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    child: Icon(
+                      CupertinoIcons.chevron_down,
+                      size: 14,
+                      color: p.inkSoft,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
               ),
-              const SizedBox(width: 9),
-              Text(
-                hourLabel(hour),
-                style: TypeRamp.label(p.ink).weighted(FontWeight.w700),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                count == 1 ? '1 activity' : '$count activities',
-                style: TypeRamp.caption(p.inkSoft),
-              ),
-            ],
+            ),
           ),
         ),
-        IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                width: 1.5,
-                margin: const EdgeInsets.only(left: 3.75, right: 11, bottom: 8),
-                color: p.hairline,
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: children,
+        AnimatedSize(
+          duration: reduce ? Duration.zero : const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: !_open
+              ? const SizedBox(width: double.infinity)
+              : IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        width: 1.5,
+                        margin: const EdgeInsets.only(
+                          left: 3.75,
+                          right: 11,
+                          bottom: 8,
+                        ),
+                        color: p.hairline,
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: widget.children,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
         ),
       ],
     );
@@ -1884,45 +2023,97 @@ class ActionListSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = Palette.of(context);
-    return _SheetFrame(
+    return SheetFrame(
       title: title,
       children: [
-        for (final (label, count, action) in items)
-          Semantics(
-            button: true,
-            label: count > 0 ? '$label, $count new' : label,
-            excludeSemantics: true,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                Navigator.of(context).pop();
-                action();
-              },
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 48),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(label, style: TypeRamp.body(p.ink))),
-                    if (count > 0) ...[
-                      CountBadge(
-                        count: count,
-                        child: const SizedBox(width: 15),
+        GlassPanel(
+          radius: 18,
+          weight: GlassWeight.thin,
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final (i, (label, count, action)) in items.indexed) ...[
+                if (i > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Container(height: 0.5, color: p.hairline),
+                  ),
+                Semantics(
+                  button: true,
+                  label: count > 0 ? '$label, $count new' : label,
+                  excludeSemantics: true,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      action();
+                    },
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(label, style: TypeRamp.body(p.ink)),
+                            ),
+                            if (count > 0) ...[
+                              CountBadge(
+                                count: count,
+                                child: const SizedBox(width: 15),
+                              ),
+                              const SizedBox(width: 12),
+                            ],
+                            Icon(
+                              CupertinoIcons.chevron_right,
+                              size: 14,
+                              color: p.inkFaint,
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 12),
-                    ],
-                    Icon(
-                      CupertinoIcons.chevron_right,
-                      size: 14,
-                      color: p.inkFaint,
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
+              ],
+            ],
           ),
+        ),
       ],
     );
   }
+}
+
+/// A menu of grouped sections, each a pane of glass with icon rows.
+class GlassMenuSheet extends StatelessWidget {
+  const GlassMenuSheet({
+    super.key,
+    required this.title,
+    required this.sections,
+    this.onReopen,
+  });
+
+  final String title;
+  final List<MenuSection> sections;
+
+  /// Opens this menu again, for the Back button of whatever it opens.
+  final VoidCallback? onReopen;
+
+  @override
+  Widget build(BuildContext context) => SheetFrame(
+    title: title,
+    children: [
+      GlassMenuList(
+        sections: sections,
+        onDone: () {
+          Navigator.of(context).pop();
+          final reopen = onReopen;
+          if (reopen != null) SheetBack.arm(reopen);
+        },
+      ),
+    ],
+  );
 }
 
 /// The people's view of [DateUtils] without pulling in Material.

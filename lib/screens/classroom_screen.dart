@@ -17,11 +17,19 @@ import '../model/plan.dart';
 import '../model/sample_plans.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
+import '../widgets/glass_menu.dart';
+import '../widgets/glass_motion.dart';
 import '../widgets/spring_sheet.dart';
 import 'classroom_forms.dart';
 import 'map_key.dart';
 import 'plan_views.dart';
+import 'chat_sheet.dart';
+import 'files_sheet.dart';
+import 'practice_sheet.dart';
+import 'step_collab.dart';
 import 'step_panel.dart';
+import 'requests_sheets.dart';
+import 'threads_sheet.dart';
 import 'timeline_view.dart';
 
 enum PlanView { graph, timeline, list }
@@ -182,6 +190,26 @@ class _ClassroomScreenState extends State<ClassroomScreen>
         },
         onState: _onStored,
       );
+      _chatFeed = session.backend.chat(session.classroomId).listen((messages) {
+        if (mounted) setState(() => _chatMessages = messages);
+      }, onError: (Object _) {});
+      _threadFeed = session.backend.threads(session.classroomId).listen((list) {
+        if (mounted) setState(() => _threads = list);
+      }, onError: (Object _) {});
+      _offerFeed = session.backend.offers(session.classroomId).listen((list) {
+        if (mounted) setState(() => _offers = list);
+      }, onError: (Object _) {});
+      _suggestionFeed = session.backend.suggestions(session.classroomId).listen(
+        (list) {
+          if (mounted) setState(() => _suggestions = list);
+        },
+        onError: (Object _) {},
+      );
+      _handoverFeed = session.backend.handovers(session.classroomId).listen((
+        list,
+      ) {
+        if (mounted) setState(() => _handovers = list);
+      }, onError: (Object _) {});
       _feed = session.backend.activityFeed(session.classroomId).listen((
         entries,
       ) {
@@ -275,12 +303,10 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     unawaited(
       showGlassSheet<void>(
         context,
-        (_) => ActionListSheet(
-          title: 'Classroom',
-          items: [
-            if (_isShort(context)) ('Add a step', 0, _addStep),
-            ..._classroomActions(),
-          ],
+        (_) => GlassMenuSheet(
+          title: _room?.title ?? 'Classroom',
+          sections: _menuSections(withAddStep: _isShort(context)),
+          onReopen: _showMore,
         ),
       ),
     );
@@ -373,6 +399,429 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     }
   }
 
+  /// Another step this one has to wait for. Steps that would make a loop
+  /// aren't offered.
+  void _pickNeed(PlanStep step) {
+    final options = [
+      for (final s in _plan.steps.values)
+        if (s.id != step.id &&
+            !step.dependsOn.contains(s.id) &&
+            !_plan.wouldCycle(step.id, s.id))
+          s,
+    ]..sort((a, b) => a.due.compareTo(b.due));
+    if (options.isEmpty) {
+      _showNotice('No other step can be added without making a loop.');
+      return;
+    }
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ActionListSheet(
+          title: 'It needs…',
+          items: [
+            for (final s in options)
+              (
+                '${s.title} · ${_plan.member(s.ownerId).name}',
+                0,
+                () => _link(s.id, step.id),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<ChatMessage> _chatMessages = const [];
+  List<ChatThread> _threads = const [];
+  StreamSubscription<List<ChatThread>>? _threadFeed;
+  List<Handover> _handovers = const [];
+  StreamSubscription<List<Handover>>? _handoverFeed;
+
+  /// Everything new behind the More button.
+  int get _moreCount =>
+      _unread + _unreadChat + _unreadThreads + _handoversForMe;
+
+  List<Offer> _offers = const [];
+  StreamSubscription<List<Offer>>? _offerFeed;
+  List<Suggestion> _suggestions = const [];
+  StreamSubscription<List<Suggestion>>? _suggestionFeed;
+
+  /// Everything waiting on this person to accept or decline here.
+  int get _importantCount =>
+      _handoversForMe +
+      _offers
+          .where((o) => o.toUid == _me && o.status == OfferStatus.pending)
+          .length +
+      _suggestions
+          .where((s) => s.toUid == _me && s.status == SuggestionStatus.open)
+          .length;
+
+  RoomContext? get _roomContext {
+    final s = _stored;
+    return s == null ? null : RoomContext.of(s, _me);
+  }
+
+  void _showImportant() {
+    final backend = _backend;
+    final room = _roomContext;
+    if (backend == null || room == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ImportantSheet(backend: backend, rooms: [room]),
+      ),
+    );
+  }
+
+  /// The + beside a step: link it, send its owner something, or suggest.
+  void _stepPlus(String id) {
+    final backend = _backend;
+    final room = _roomContext;
+    final step = _plan.steps[id];
+    if (step == null) return;
+    if (backend == null || room == null) {
+      _select(id);
+      setState(() => _linkFromId = id);
+      return;
+    }
+    final mine = step.ownerId == _me;
+    final owner = _plan.member(step.ownerId).name;
+    Future<void> guard(Future<void> Function() run, String done) async {
+      try {
+        await run();
+        _showNotice(done);
+      } on BackendFailure catch (e) {
+        _showNotice(e.message);
+      }
+    }
+
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ActionListSheet(
+          title: '“${step.title}”',
+          items: [
+            if (_canEdit(id))
+              (
+                'Link it to another step',
+                0,
+                () => setState(() => _linkFromId = id),
+              ),
+            if (mine) ...[
+              (
+                'Add a study material',
+                0,
+                () async {
+                  final made = await showGlassSheet<StudyMaterial>(
+                    context,
+                    (_) => MaterialEditorSheet(
+                      newId: backend.newId,
+                      ownerUid: _me,
+                      stepId: id,
+                    ),
+                  );
+                  if (made == null) return;
+                  await guard(
+                    () => backend.saveMaterial(_classroomId, made),
+                    'Added to your study materials',
+                  );
+                },
+              ),
+              ('Open the step', 0, () => _select(id)),
+            ] else ...[
+              (
+                'Send $owner a study material',
+                0,
+                () => guard(
+                  () => offerMaterial(
+                    context,
+                    backend: backend,
+                    room: room,
+                    step: step,
+                  ),
+                  'Sent. It waits for $owner to accept.',
+                ),
+              ),
+              (
+                'Share a board with $owner',
+                0,
+                () => guard(
+                  () => offerBoard(
+                    context,
+                    backend: backend,
+                    room: room,
+                    step: step,
+                  ),
+                  'Shared. It waits for $owner to accept.',
+                ),
+              ),
+              (
+                'Suggest a change',
+                0,
+                () => suggestChange(
+                  context,
+                  backend: backend,
+                  classroomId: _classroomId,
+                  plan: _plan,
+                  step: step,
+                  onNotice: _showNotice,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _newHandover() async {
+    final picked = await showGlassSheet<(String, String, String)>(
+      context,
+      (_) => NewHandoverSheet(plan: _plan, viaMaster: !_manages),
+    );
+    if (picked == null || !mounted) return;
+    await _sendHandover(picked.$1, picked.$2, picked.$3);
+  }
+
+  int get _unreadThreads => _threads.where((t) => t.unreadFor(_me)).length;
+
+  /// Handover requests waiting on this person to decide.
+  int get _handoversForMe => _handovers
+      .where(
+        (h) =>
+            (h.status == HandoverStatus.needsMaster && _manages) ||
+            (h.status == HandoverStatus.needsReceiver && h.toUid == _me),
+      )
+      .length;
+
+  /// A private chat with just these people (and this person).
+  Future<void> _openChatWith(List<String> people) async {
+    final backend = _backend;
+    if (backend == null) return;
+    final others = people.where((u) => u != _me).toList();
+    if (others.isEmpty) {
+      _showNotice('That’s you. Tap someone else to message them.');
+      return;
+    }
+    final String id;
+    try {
+      id = await backend.openThread(_classroomId, others);
+    } on BackendFailure catch (e) {
+      _showNotice(e.message);
+      return;
+    }
+    if (!mounted) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ThreadSheet(
+          backend: backend,
+          classroomId: _classroomId,
+          threadId: id,
+          plan: _plan,
+          participants: [_me, ...others],
+        ),
+      ),
+    );
+  }
+
+  void _showChats() {
+    final backend = _backend;
+    if (backend == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ChatsSheet(
+          backend: backend,
+          classroomId: _classroomId,
+          plan: _plan,
+          masterUid: _room?.masterUid ?? '',
+          onOpen: _openChatWith,
+          onNewGroup: _newGroupChat,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _newGroupChat() async {
+    final picked = await showGlassSheet<List<String>>(
+      context,
+      (_) => GroupPickerSheet(plan: _plan),
+    );
+    if (picked == null || picked.length < 2 || !mounted) return;
+    await _openChatWith(picked);
+  }
+
+  /// Asks to give one of this person's steps to someone else: through the
+  /// master for a member, straight to the person for a master or co-master.
+  Future<void> _requestHandover(String stepId, String toUid) async {
+    final backend = _backend;
+    final step = _plan.steps[stepId];
+    if (backend == null || step == null || toUid == step.ownerId) return;
+    if (step.ownerId != _me) {
+      _showNotice('Only the person whose step it is can hand it over.');
+      return;
+    }
+    final to = _plan.member(toUid).name;
+    final viaMaster = !_manages;
+    final note = await showGlassSheet<String>(
+      context,
+      (_) => HandoverRequestSheet(
+        stepTitle: step.title,
+        to: to,
+        viaMaster: viaMaster,
+      ),
+    );
+    if (note == null || !mounted) return;
+    await _sendHandover(stepId, toUid, note);
+  }
+
+  Future<void> _sendHandover(String stepId, String toUid, String note) async {
+    final backend = _backend;
+    final step = _plan.steps[stepId];
+    if (backend == null || step == null) return;
+    final to = _plan.member(toUid).name;
+    final viaMaster = !_manages;
+    try {
+      await backend.requestHandover(_classroomId, stepId, toUid, note);
+    } on BackendFailure catch (e) {
+      _showNotice(e.message);
+      return;
+    }
+    final me = _plan.member(_me).name;
+    final master = _room?.masterUid ?? '';
+    final tellUid = viaMaster ? master : toUid;
+    if (tellUid.isNotEmpty && tellUid != _me) {
+      unawaited(
+        backend
+            .notify(
+              tellUid,
+              Notice(
+                classroomId: _classroomId,
+                entry: ActivityEntry(
+                  id: '',
+                  actorUid: _me,
+                  kind: ActivityKind.stepHandedOver,
+                  summary: viaMaster
+                      ? '$me asked to hand “${step.title}” to $to'
+                            '${note.isEmpty ? '' : ': ${clipLine(note)}'}'
+                      : '$me wants to hand you “${step.title}”'
+                            '${note.isEmpty ? '' : ': ${clipLine(note)}'}',
+                  targetId: stepId,
+                  affectsUid: tellUid,
+                  createdAt: DateTime.now(),
+                ),
+              ),
+            )
+            .catchError((Object _) {}),
+      );
+    }
+    _showNotice(
+      viaMaster
+          ? 'Asked the master to hand it to $to'
+          : 'Asked $to to take it on',
+    );
+  }
+
+  void _showHandovers() {
+    final backend = _backend;
+    final room = _roomContext;
+    if (backend == null || room == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => HandoversSheet(
+          backend: backend,
+          room: room,
+          onOpenStep: _goTo,
+          onNew: () => unawaited(_newHandover()),
+        ),
+      ),
+    );
+  }
+
+  StreamSubscription<List<ChatMessage>>? _chatFeed;
+
+  /// Messages from others since this person last opened the chat.
+  int get _unreadChat {
+    final state = _stored;
+    if (state == null) return 0;
+    DateTime? seen;
+    for (final m in state.members) {
+      if (m.uid == _me) seen = m.chatSeenAt;
+    }
+    return _chatMessages
+        .where(
+          (m) =>
+              m.authorUid != _me && (seen == null || m.createdAt.isAfter(seen)),
+        )
+        .length;
+  }
+
+  void _showChat() {
+    final backend = _backend;
+    if (backend == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => ChatSheet(
+          backend: backend,
+          classroomId: _classroomId,
+          plan: _plan,
+          isMaster: _isMaster,
+        ),
+      ),
+    );
+  }
+
+  void _showSharedBoards() {
+    final backend = _backend;
+    final room = _roomContext;
+    if (backend == null || room == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => SharedBoardsSheet(backend: backend, room: room),
+      ),
+    );
+  }
+
+  void _showFiles() {
+    final backend = _backend;
+    final room = _room;
+    if (backend == null || room == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => FilesSheet(
+          backend: backend,
+          classroomId: _classroomId,
+          classroomTitle: room.title,
+          plan: _plan,
+          canManage: _manages,
+        ),
+      ),
+    );
+  }
+
+  void _showPractice() {
+    final backend = _backend;
+    final room = _room;
+    if (backend == null || room == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => PracticeSheet(
+          backend: backend,
+          classroomId: _classroomId,
+          taskType: room.taskType,
+          plan: _plan,
+          canManage: _manages,
+        ),
+      ),
+    );
+  }
+
   void _showSettings() {
     final room = _room;
     final backend = _backend;
@@ -427,6 +876,11 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     _noticeTimer?.cancel();
     _sync?.dispose();
     unawaited(_feed?.cancel());
+    unawaited(_chatFeed?.cancel());
+    unawaited(_threadFeed?.cancel());
+    unawaited(_handoverFeed?.cancel());
+    unawaited(_offerFeed?.cancel());
+    unawaited(_suggestionFeed?.cancel());
     _controller.removeListener(_onPlanChanged);
     _controller.dispose();
     _camera.dispose();
@@ -1056,6 +1510,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     );
     return GlassPanel(
       radius: 24,
+      weight: GlassWeight.thin,
       padding: const EdgeInsets.fromLTRB(12, 20, 12, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1084,28 +1539,165 @@ class _ClassroomScreenState extends State<ClassroomScreen>
               ),
             ),
           ] else ...[
-            item('Dashboard', false, () => Navigator.of(context).maybePop()),
-            const SizedBox(height: 14),
-            for (final (label, count, action) in _classroomActions())
-              item(label, false, action, count: count),
-            const Spacer(),
-            item('Your profile', false, _showProfile),
+            GlassMenuRow(
+              entry: MenuEntry(
+                'Dashboard',
+                CupertinoIcons.square_grid_2x2,
+                () => Navigator.of(context).maybePop(),
+              ),
+              dense: true,
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                child: GlassMenuList(sections: _menuSections(), dense: true),
+              ),
+            ),
+            const SizedBox(height: 6),
+            GlassMenuRow(
+              entry: MenuEntry(
+                'Your profile',
+                CupertinoIcons.person_crop_circle,
+                _showProfile,
+                colour: p.route,
+              ),
+              dense: true,
+            ),
           ],
         ],
       ),
     );
   }
 
-  /// Everything to do with the open classroom, for the sidebar and the menu.
-  List<(String, int, VoidCallback)> _classroomActions() {
+  /// Everything to do with the open classroom, for the sidebar and the menu,
+  /// grouped by what it's for.
+  List<MenuSection> _menuSections({bool withAddStep = false}) {
     final individual = _room?.individual ?? false;
+    final live = _backend != null;
+    final p = Palette.of(context);
     return [
-      if (_manages) ('Phases', 0, _showPhases),
-      if (!individual) ('Members and invite code', 0, _showMembers),
-      if (!individual) ('Since you were away', _unread, _showAwayNews),
-      if (!individual) ('Activity', 0, _showActivity),
-      if (_isMaster) ('Settings', 0, _showSettings),
-      if (!individual) ('Leave classroom', 0, _leaveClassroom),
+      MenuSection('Needs you', [
+        if (withAddStep)
+          MenuEntry('Add a step', CupertinoIcons.plus_circle, _addStep),
+        if (live && !individual)
+          MenuEntry(
+            'Important',
+            CupertinoIcons.exclamationmark_bubble,
+            _showImportant,
+            colour: p.accentWarm,
+            count: _importantCount,
+          ),
+        if (!individual)
+          MenuEntry(
+            'Since you were away',
+            CupertinoIcons.bell,
+            _showAwayNews,
+            colour: p.route,
+            count: _unread,
+          ),
+        if (live && !individual)
+          MenuEntry(
+            'Handovers',
+            CupertinoIcons.arrow_right_arrow_left,
+            _showHandovers,
+            colour: p.accentViolet,
+            count: _handoversForMe,
+          ),
+      ]),
+      if (live && !individual)
+        MenuSection('Talk', [
+          MenuEntry(
+            'Class chat',
+            CupertinoIcons.chat_bubble_2,
+            _showChat,
+            colour: p.accentTeal,
+            count: _unreadChat,
+          ),
+          MenuEntry(
+            'Private chats',
+            CupertinoIcons.lock,
+            _showChats,
+            colour: p.accent,
+            count: _unreadThreads,
+          ),
+          if (_plan.members.length > 2)
+            MenuEntry(
+              'New group chat',
+              CupertinoIcons.person_3,
+              _newGroupChat,
+              colour: p.accentViolet,
+            ),
+          // Group chats stay here, with their messages, once started.
+          for (final th in _threads)
+            if (th.participants.length > 2)
+              MenuEntry(
+                threadTitle(th, _plan),
+                CupertinoIcons.person_2,
+                () => unawaited(_openChatWith(th.participants)),
+                colour: p.accentViolet,
+                count: th.unreadFor(_me) ? 1 : 0,
+                indent: true,
+              ),
+        ]),
+      MenuSection('Work', [
+        if (_manages)
+          MenuEntry(
+            'Phases',
+            CupertinoIcons.square_stack_3d_up,
+            _showPhases,
+            colour: p.doing,
+          ),
+        if (live)
+          MenuEntry(
+            'Files',
+            CupertinoIcons.folder,
+            _showFiles,
+            colour: p.accent,
+          ),
+        if (live)
+          MenuEntry(
+            'Practice',
+            CupertinoIcons.flag,
+            _showPractice,
+            colour: p.accentTeal,
+          ),
+        if (live && !individual)
+          MenuEntry(
+            'Shared boards',
+            CupertinoIcons.paintbrush,
+            _showSharedBoards,
+            colour: p.accentWarm,
+          ),
+        if (!individual)
+          MenuEntry(
+            'Activity',
+            CupertinoIcons.waveform_path_ecg,
+            _showActivity,
+            colour: p.accent,
+          ),
+      ]),
+      MenuSection('Classroom', [
+        if (!individual)
+          MenuEntry(
+            'Members and invite code',
+            CupertinoIcons.person_crop_circle_badge_plus,
+            _showMembers,
+            colour: p.done,
+          ),
+        if (_isMaster)
+          MenuEntry(
+            'Settings',
+            CupertinoIcons.gear,
+            _showSettings,
+            colour: p.inkSoft,
+          ),
+        if (!individual)
+          MenuEntry(
+            'Leave classroom',
+            CupertinoIcons.square_arrow_left,
+            _leaveClassroom,
+            destructive: true,
+          ),
+      ]),
     ];
   }
 
@@ -1115,6 +1707,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     final compact = room < _labelledToolbarWidth;
     return GlassPanel(
       radius: _barHeight / 2,
+      weight: GlassWeight.thin,
       padding: const EdgeInsets.only(left: 20, right: 8),
       child: Row(
         children: [
@@ -1190,29 +1783,31 @@ class _ClassroomScreenState extends State<ClassroomScreen>
               button: true,
               label: 'Switch classroom. Current: ${_plan.title}',
               excludeSemantics: true,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _showClassroomSheet,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 44),
-                  child: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          _plan.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TypeRamp.heading(p.ink)
-                              .weighted(FontWeight.w700),
+              child: Builder(
+                builder: (anchor) => GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _showClassroomSheet(anchor: anchor),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 44),
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            _plan.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TypeRamp.heading(p.ink)
+                                .weighted(FontWeight.w700),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        CupertinoIcons.chevron_down,
-                        size: 13,
-                        color: p.inkSoft,
-                      ),
-                    ],
+                        const SizedBox(width: 4),
+                        Icon(
+                          CupertinoIcons.chevron_down,
+                          size: 13,
+                          color: p.inkSoft,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1281,30 +1876,32 @@ class _ClassroomScreenState extends State<ClassroomScreen>
               button: true,
               label: 'Switch classroom. Current: ${_plan.title}',
               excludeSemantics: true,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _showClassroomSheet,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 44),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          _plan.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TypeRamp.label(p.ink)
-                              .weighted(FontWeight.w700),
+              child: Builder(
+                builder: (anchor) => GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _showClassroomSheet(anchor: anchor),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 44),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            _plan.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TypeRamp.label(p.ink)
+                                .weighted(FontWeight.w700),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 3),
-                      Icon(
-                        CupertinoIcons.chevron_down,
-                        size: 12,
-                        color: p.inkSoft,
-                      ),
-                    ],
+                        const SizedBox(width: 3),
+                        Icon(
+                          CupertinoIcons.chevron_down,
+                          size: 12,
+                          color: p.inkSoft,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1411,9 +2008,9 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           _keyButton(44),
           if (widget.session != null) ...[
             CountBadge(
-              count: _unread,
+              count: _moreCount,
               child: PressButton(
-                label: _unread > 0 ? 'More, $_unread new' : 'More',
+                label: _moreCount > 0 ? 'More, $_moreCount new' : 'More',
                 icon: CupertinoIcons.ellipsis_circle,
                 iconOnly: true,
                 quiet: true,
@@ -1498,6 +2095,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       height: _tabBarHeight,
       child: GlassPanel(
         radius: _tabBarHeight / 2,
+        weight: GlassWeight.thin,
         padding: const EdgeInsets.all(4),
         child: Stack(
           children: [
@@ -1511,11 +2109,10 @@ class _ClassroomScreenState extends State<ClassroomScreen>
                 widthFactor: 1 / tabs,
                 heightFactor: 1,
                 child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: p.control,
-                    borderRadius: BorderRadius.circular(
-                      (_tabBarHeight - 8) / 2,
-                    ),
+                  decoration: glassTint(
+                    p,
+                    p.accent,
+                    radius: (_tabBarHeight - 8) / 2,
                   ),
                 ),
               ),
@@ -1535,7 +2132,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
                     CupertinoIcons.ellipsis_circle,
                     false,
                     _showMore,
-                    count: _unread,
+                    count: _moreCount,
                   ),
                   tab(
                     'Profile',
@@ -1552,37 +2149,64 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     );
   }
 
-  void _showClassroomSheet() {
-    if (widget.session != null) {
-      unawaited(_switchClassroom());
+  /// Opens [sections] as a pane of glass dropping from [anchor], or as a sheet
+  /// when there's nothing to drop from.
+  void _dropMenu(
+    BuildContext? anchor,
+    String title,
+    List<MenuSection> sections,
+  ) {
+    if (anchor == null) {
+      unawaited(
+        showGlassSheet<void>(
+          context,
+          (_) => GlassMenuSheet(title: title, sections: sections),
+        ),
+      );
       return;
     }
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (context) => CupertinoActionSheet(
-        title: const Text('Classrooms'),
-        message: const Text('All plans here are sample data.'),
-        actions: [
-          for (var i = 0; i < _planNames.length; i++)
-            CupertinoActionSheetAction(
-              isDefaultAction: i == _planIndex,
-              onPressed: () {
-                Navigator.of(context).pop();
-                _switchPlan(i);
-              },
-              child: Text(_planNames[i]),
+    unawaited(
+      showGlassPopover<void>(
+        anchor,
+        builder: (popover) => GlassPanel(
+          radius: 22,
+          weight: GlassWeight.thick,
+          padding: const EdgeInsets.fromLTRB(6, 2, 6, 8),
+          child: SingleChildScrollView(
+            child: GlassMenuList(
+              sections: sections,
+              dense: true,
+              onDone: () => Navigator.of(popover).pop(),
             ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          ),
         ),
       ),
     );
   }
 
+  void _showClassroomSheet({BuildContext? anchor}) {
+    if (widget.session != null) {
+      unawaited(_switchClassroom(anchor));
+      return;
+    }
+    final p = Palette.of(context);
+    _dropMenu(anchor, 'Classrooms', [
+      MenuSection('Sample plans', [
+        for (var i = 0; i < _planNames.length; i++)
+          MenuEntry(
+            _planNames[i],
+            i == _planIndex
+                ? CupertinoIcons.checkmark_circle_fill
+                : CupertinoIcons.rectangle_stack,
+            () => _switchPlan(i),
+            colour: i == _planIndex ? p.done : p.accent,
+          ),
+      ]),
+    ]);
+  }
+
   /// The classroom's name switches classrooms, and nothing else.
-  Future<void> _switchClassroom() async {
+  Future<void> _switchClassroom([BuildContext? anchor]) async {
     final session = widget.session!;
     final List<Classroom> rooms;
     try {
@@ -1593,47 +2217,44 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     }
     if (!mounted) return;
     final navigator = Navigator.of(context);
-    unawaited(
-      showCupertinoModalPopup<void>(
-        context: context,
-        builder: (context) => CupertinoActionSheet(
-          title: const Text('Switch classroom'),
-          actions: [
-            for (final room in rooms)
-              CupertinoActionSheetAction(
-                isDefaultAction: room.id == session.classroomId,
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  if (room.id == session.classroomId) return;
-                  navigator.pushReplacement(
-                    CupertinoPageRoute<void>(
-                      builder: (_) => ClassroomScreen(
-                        onBrightnessChanged: widget.onBrightnessChanged,
-                        session: ClassroomSession(
-                          backend: session.backend,
-                          classroomId: room.id,
-                        ),
-                      ),
+    final p = Palette.of(context);
+    // The name it drops from may have gone while the list loaded; checked here.
+    final from = anchor != null && anchor.mounted ? anchor : null;
+    // ignore: use_build_context_synchronously
+    _dropMenu(from, 'Switch classroom', [
+      MenuSection('Your classrooms', [
+        for (final room in rooms)
+          MenuEntry(
+            room.title,
+            room.id == session.classroomId
+                ? CupertinoIcons.checkmark_circle_fill
+                : CupertinoIcons.rectangle_stack,
+            () {
+              if (room.id == session.classroomId) return;
+              navigator.pushReplacement(
+                GlassRoute<void>(
+                  builder: (_) => ClassroomScreen(
+                    onBrightnessChanged: widget.onBrightnessChanged,
+                    session: ClassroomSession(
+                      backend: session.backend,
+                      classroomId: room.id,
                     ),
-                  );
-                },
-                child: Text(room.title),
-              ),
-            CupertinoActionSheetAction(
-              onPressed: () {
-                Navigator.of(context).pop();
-                navigator.maybePop();
-              },
-              child: const Text('Dashboard'),
-            ),
-          ],
-          cancelButton: CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+                  ),
+                ),
+              );
+            },
+            colour: room.id == session.classroomId ? p.done : p.accent,
           ),
+      ]),
+      MenuSection('Elsewhere', [
+        MenuEntry(
+          'Dashboard',
+          CupertinoIcons.square_grid_2x2,
+          () => navigator.maybePop(),
+          colour: p.route,
         ),
-      ),
-    );
+      ]),
+    ]);
   }
 
   // Content -------------------------------------------------------------------
@@ -1655,7 +2276,22 @@ class _ClassroomScreenState extends State<ClassroomScreen>
         return Stack(
           clipBehavior: Clip.hardEdge,
           children: [
-            Positioned.fill(child: _buildPlanView(p, panelOpen, narrow, shell)),
+            Positioned.fill(
+              child: AnimatedSwitcher(
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 260),
+                switchInCurve: Curves.linear,
+                switchOutCurve: Curves.linear,
+                layoutBuilder: onlyNewest,
+                transitionBuilder: (child, animation) =>
+                    glassSwitch(child, animation, drift: 16),
+                child: KeyedSubtree(
+                  key: ValueKey(_view),
+                  child: _buildPlanView(p, panelOpen, narrow, shell),
+                ),
+              ),
+            ),
             if (_view == PlanView.graph && _plan.steps.isNotEmpty) ...[
               if (!short && (_activeEdge == null || showMap))
                 _buildNextCard(p, phone, panelOpen, shell, stripEnd),
@@ -1711,18 +2347,24 @@ class _ClassroomScreenState extends State<ClassroomScreen>
               ),
             if (panelStep != null && narrow && !short)
               Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: constraints.maxHeight - shell.top,
+                left: 8,
+                right: 8,
+                bottom: safeBottom + 8,
+                height: math.min(
+                  (constraints.maxHeight - shell.top - safeBottom) * 0.62,
+                  680,
+                ),
                 child: BottomSheetHost(
                   open: panelOpen,
-                  height: constraints.maxHeight - shell.top,
+                  height: math.min(
+                    (constraints.maxHeight - shell.top - safeBottom) * 0.62,
+                    680,
+                  ),
                   onDismissed: () => _select(null),
+                  boxed: true,
                   builder: (context, grabber) => GlassPanel(
                     radius: 28,
                     weight: GlassWeight.thick,
-                    padding: EdgeInsets.only(bottom: safeBottom),
                     child: _stepPanel(panelStep, narrow, grabber),
                   ),
                 ),
@@ -1809,6 +2451,12 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       onReopen: () => _controller.setStatus(step.id, StepStatus.todo),
       onHandOver: (ownerId) {
         if (ownerId == step.ownerId || !_canEdit(step.id)) return;
+        // In a classroom, your own step goes by request; the master and
+        // co-masters can still move anyone else's.
+        if (widget.session != null && step.ownerId == _me) {
+          unawaited(_requestHandover(step.id, ownerId));
+          return;
+        }
         _controller.handOver(step.id, ownerId);
         _showNotice('Handed to ${_plan.member(ownerId).name}');
       },
@@ -1822,6 +2470,31 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       onApprove: () => _controller.setStatus(step.id, StepStatus.done),
       onSendBack: () => _controller.setStatus(step.id, StepStatus.doing),
       onEdit: widget.session == null ? null : () => _editStep(step),
+      onAddDependency: widget.session == null || step.ownerId != _me
+          ? null
+          : () => _pickNeed(step),
+      showNeeds: widget.session == null || step.ownerId == _me,
+      onSaveDescription: step.ownerId == _me
+          ? (text) {
+              _controller.adopt(
+                _plan.replacing(step.copyWith(description: text)),
+              );
+              _showNotice('Description saved');
+            }
+          : null,
+      collab: _backend == null
+          ? null
+          : StepCollab(
+              key: ValueKey('collab-${step.id}'),
+              backend: _backend!,
+              classroomId: _classroomId,
+              plan: _plan,
+              step: step,
+              canManage: _manages,
+              onNotice: _showNotice,
+              masterUid: _room?.masterUid ?? '',
+              classroomTitle: _room?.title ?? '',
+            ),
     );
   }
 
@@ -1873,6 +2546,13 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           onFitPhase: _fitPhase,
           onToggleDirection: _toggleDirection,
           canEdit: widget.session == null ? null : _canEdit,
+          onMemberTap: widget.session == null
+              ? null
+              : (uid) => unawaited(_openChatWith([uid])),
+          onRequestHandover: widget.session == null || _manages
+              ? null
+              : (id, to) => unawaited(_requestHandover(id, to)),
+          onHandleTap: _stepPlus,
         );
       case PlanView.timeline:
         return Padding(

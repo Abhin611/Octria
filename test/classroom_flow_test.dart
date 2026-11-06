@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:octria/data/drive.dart';
 import 'package:octria/data/local_backend.dart';
 import 'package:octria/data/models.dart';
 import 'package:octria/data/backend.dart';
@@ -9,6 +10,8 @@ import 'package:octria/data/user_stats.dart';
 import 'package:octria/graph/graph_painter.dart';
 import 'package:octria/main.dart';
 import 'package:octria/model/plan.dart';
+import 'package:octria/data/demo_seed.dart';
+import 'package:octria/data/overview.dart';
 import 'package:octria/screens/classroom_forms.dart';
 import 'package:octria/screens/home_screen.dart';
 import 'package:octria/theme/tokens.dart';
@@ -35,6 +38,83 @@ Future<void> _settle(WidgetTester tester, [int frames = 40]) async {
 }
 
 void main() {
+  test('library files: shared for everyone, private for the owner, Drive '
+      'links only', () async {
+    final b = LocalBackend();
+    await b.registerWithEmail('Mina', 'm@f.dev', 'secret1');
+    final room = await b.createClassroom(
+      title: 'Files',
+      description: '',
+      taskType: TaskType.build,
+      individual: false,
+    );
+    final code = (await b.watchClassroom(room).first).classroom.inviteCode;
+    await b.signOut();
+    await b.registerWithEmail('Amy', 'a@f.dev', 'secret1');
+    final amy = b.currentUser!.uid;
+    await b.joinWithCode(code);
+
+    Future<LibraryFile> add(String name, {bool shared = true}) async {
+      final up = await b.drive.upload(
+        name: name,
+        mimeType: mimeTypeFor(name),
+        bytes: Uint8List(100),
+        folder: 'Files',
+        anyoneWithLink: shared,
+      );
+      final f = LibraryFile(
+        id: up.id,
+        name: up.name,
+        mimeType: up.mimeType,
+        size: up.size,
+        url: up.url,
+        ownerUid: amy,
+        createdAt: DateTime.now(),
+        shared: shared,
+      );
+      await b.addFile(room, f);
+      return f;
+    }
+
+    final open = await add('Slides.pptx');
+    final mine = await add('Draft.docx', shared: false);
+    expect((b.drive as MemoryDrive).linkShared, {open.id});
+    expect(await b.files(room).first, hasLength(2));
+    await expectLater(
+      b.addFile(
+        room,
+        LibraryFile(
+          id: 'x',
+          name: 'Bad',
+          mimeType: '',
+          size: 1,
+          url: 'https://evil.example/x',
+          ownerUid: amy,
+          createdAt: DateTime.now(),
+        ),
+      ),
+      throwsA(isA<BackendFailure>()),
+    );
+
+    await b.signOut();
+    await b.signInWithEmail('m@f.dev', 'secret1');
+    final seen = await b.files(room).first;
+    expect(seen.map((f) => f.id), [open.id]);
+    await expectLater(
+      b.updateFile(room, open.copyWith(shared: false)),
+      throwsA(isA<BackendFailure>()),
+    );
+    // The master can take a file out of the library.
+    await b.removeFile(room, open.id);
+    expect(await b.files(room).first, isEmpty);
+
+    await b.signOut();
+    await b.signInWithEmail('a@f.dev', 'secret1');
+    expect((await b.files(room).first).map((f) => f.id), [mine.id]);
+    expect(fileKindOf(mimeTypeFor('a.PDF')), FileKind.pdf);
+    expect(sizeLabel(2 * 1024 * 1024), '2.0 MB');
+  });
+
   group('permissions, as the rules enforce them', () {
     late LocalBackend b;
     late String room;
@@ -414,6 +494,462 @@ void main() {
     await b.deleteActivity(room, log.single.id);
     expect(await b.activity(room), isEmpty);
   });
+
+  test('only safe web links can be stored, and their kind is guessed', () {
+    expect(
+      webAddress('youtube.com/watch?v=1'),
+      'https://youtube.com/watch?v=1',
+    );
+    expect(webAddress('http://example.org/a'), 'http://example.org/a');
+    expect(webAddress('javascript:alert(1)'), isNull);
+    expect(webAddress('file:///etc/passwd'), isNull);
+    expect(webAddress('not a link'), isNull);
+    expect(webAddress('localhost'), isNull);
+    expect(MaterialKind.guess('https://youtu.be/x'), MaterialKind.video);
+    expect(MaterialKind.guess('github.com/a/b'), MaterialKind.repo);
+    expect(MaterialKind.guess('https://notgithub.com/a'), MaterialKind.link);
+    expect(MaterialKind.guess('https://docs.flutter.dev'), MaterialKind.link);
+  });
+
+  test(
+    'comments and suggestions stay between the two people in them',
+    () async {
+      final b = LocalBackend();
+      await b.registerWithEmail('Mina', 'm@t.dev', 'secret1');
+      final mina = b.currentUser!.uid;
+      final room = await b.createClassroom(
+        title: 'R',
+        description: '',
+        taskType: TaskType.build,
+        individual: false,
+      );
+      await b.savePhase(room, const PhaseRecord(id: 'p', title: 'P', order: 0));
+      final now = DateTime.now();
+      await b.saveStep(
+        room,
+        PlanStep(
+          id: 's1',
+          phaseId: 'p',
+          ownerId: mina,
+          title: 'Mina’s step',
+          estimateHours: 1,
+          start: now,
+          due: now,
+        ),
+      );
+      final code = (await b.watchClassroom(room).first).classroom.inviteCode;
+      await b.signOut();
+      await b.registerWithEmail('Amy', 'a@t.dev', 'secret1');
+      final amy = b.currentUser!.uid;
+      await b.joinWithCode(code);
+      await b.addComment(
+        room,
+        's1',
+        'Just for you',
+        ownerUid: mina,
+        withUid: amy,
+      );
+      await b.addSuggestion(
+        room,
+        Suggestion(
+          id: 'g1',
+          stepId: 's1',
+          fromUid: amy,
+          toUid: mina,
+          text: 'Split it in two',
+          createdAt: now,
+        ),
+      );
+      // Amy can't answer her own suggestion; only the step's owner can.
+      expect(
+        () => b.answerSuggestion(room, 'g1', SuggestionStatus.accepted),
+        throwsA(isA<BackendFailure>()),
+      );
+      await b.notify(
+        mina,
+        Notice(
+          classroomId: room,
+          entry: ActivityEntry(
+            id: '',
+            actorUid: amy,
+            kind: ActivityKind.commented,
+            summary: 'Amy commented',
+            createdAt: now,
+          ),
+        ),
+      );
+      await b.signOut();
+
+      // Ben is in the classroom but sees neither.
+      await b.registerWithEmail('Ben', 'b@t.dev', 'secret1');
+      await b.joinWithCode(code);
+      expect(await b.comments(room, 's1').first, isEmpty);
+      expect(await b.suggestions(room).first, isEmpty);
+      expect(await b.inbox(), isEmpty);
+      expect(
+        () => b.addComment(room, 's1', 'Sneaky', ownerUid: mina, withUid: amy),
+        throwsA(isA<BackendFailure>()),
+      );
+      await b.signOut();
+
+      // Amy shows it to everyone; now Ben can see it, but still not answer it.
+      await b.signInWithEmail('a@t.dev', 'secret1');
+      await b.setSuggestionPublic(room, 'g1', true);
+      await b.signOut();
+      await b.signInWithEmail('b@t.dev', 'secret1');
+      expect((await b.suggestions(room).first).single.public, isTrue);
+      expect(
+        () => b.setSuggestionPublic(room, 'g1', false),
+        throwsA(isA<BackendFailure>()),
+      );
+      await b.signOut();
+
+      // Mina, as owner, sees her thread with Amy, answers, and can't answer twice.
+      await b.signInWithEmail('m@t.dev', 'secret1');
+      expect((await b.comments(room, 's1').first).single.text, 'Just for you');
+      expect((await b.inbox()).single.entry.summary, 'Amy commented');
+      await b.answerSuggestion(room, 'g1', SuggestionStatus.accepted);
+      expect(
+        () => b.answerSuggestion(room, 'g1', SuggestionStatus.dismissed),
+        throwsA(isA<BackendFailure>()),
+      );
+      // A comment can only be removed by whoever wrote it, master or not.
+      final c = (await b.comments(room, 's1').first).single;
+      expect(
+        () => b.deleteComment(room, 's1', c.id),
+        throwsA(isA<BackendFailure>()),
+      );
+    },
+  );
+
+  test(
+    'the class chat takes group suggestions that each person marks done',
+    () async {
+      final b = LocalBackend();
+      await b.registerWithEmail('Mina', 'm@t.dev', 'secret1');
+      final mina = b.currentUser!.uid;
+      final room = await b.createClassroom(
+        title: 'R',
+        description: '',
+        taskType: TaskType.build,
+        individual: false,
+      );
+      await b.sendChat(room, 'Hello');
+      await b.sendChat(room, 'Everyone: rename your files', forEveryone: true);
+      final chat = await b.chat(room).first;
+      expect(chat.map((m) => m.text), ['Hello', 'Everyone: rename your files']);
+      expect(
+        () => b.setApplied(room, chat.first.id, true),
+        throwsA(isA<BackendFailure>()),
+      );
+      await b.setApplied(room, chat.last.id, true);
+      expect((await b.chat(room).first).last.appliedBy, [mina]);
+      await b.setApplied(room, chat.last.id, false);
+      expect((await b.chat(room).first).last.appliedBy, isEmpty);
+    },
+  );
+
+  test('only the step’s owner writes its description', () async {
+    final b = LocalBackend();
+    await b.registerWithEmail('Mina', 'm@t.dev', 'secret1');
+    final room = await b.createClassroom(
+      title: 'R',
+      description: '',
+      taskType: TaskType.build,
+      individual: false,
+    );
+    await b.savePhase(room, const PhaseRecord(id: 'p', title: 'P', order: 0));
+    final code = (await b.watchClassroom(room).first).classroom.inviteCode;
+    await b.signOut();
+    await b.registerWithEmail('Amy', 'a@t.dev', 'secret1');
+    final amy = b.currentUser!.uid;
+    await b.joinWithCode(code);
+    final now = DateTime.now();
+    final step = PlanStep(
+      id: 's1',
+      phaseId: 'p',
+      ownerId: amy,
+      title: 'Amy’s step',
+      estimateHours: 1,
+      start: now,
+      due: now,
+    );
+    await b.saveStep(room, step.copyWith(description: 'My plan'));
+    await b.signOut();
+    // The master can still change everything else about it.
+    await b.signInWithEmail('m@t.dev', 'secret1');
+    expect(
+      () => b.saveStep(room, step.copyWith(description: 'Master says')),
+      throwsA(isA<BackendFailure>()),
+    );
+    await b.saveStep(
+      room,
+      step.copyWith(description: 'My plan', title: 'Renamed'),
+    );
+  });
+
+  test('the demo opens as Mina, with Amy'
+      's notes waiting for her', () async {
+    final b = await demoBackend();
+    expect(b.currentUser?.name, 'Mina');
+    final room = (await b.classrooms().first).single;
+    expect(
+      (await b.suggestions(room.id).first).single.text,
+      contains('forgot'),
+    );
+    expect(await b.comments(room.id, 'design').first, hasLength(2));
+    expect(await b.chat(room.id).first, hasLength(3));
+    final o = await loadOverview(b);
+    expect(o.unreadNotices, 3);
+  });
+  test(
+    'private chats, handovers and materials stay with the right people',
+    () async {
+      final b = LocalBackend();
+      await b.registerWithEmail('Mina', 'm@t.dev', 'secret1');
+      final mina = b.currentUser!.uid;
+      final room = await b.createClassroom(
+        title: 'R',
+        description: '',
+        taskType: TaskType.build,
+        individual: false,
+      );
+      await b.savePhase(room, const PhaseRecord(id: 'p', title: 'P', order: 0));
+      final code = (await b.watchClassroom(room).first).classroom.inviteCode;
+      await b.signOut();
+      await b.registerWithEmail('Amy', 'a@t.dev', 'secret1');
+      final amy = b.currentUser!.uid;
+      await b.joinWithCode(code);
+      await b.signOut();
+      await b.registerWithEmail('Ben', 'b@t.dev', 'secret1');
+      final ben = b.currentUser!.uid;
+      await b.joinWithCode(code);
+      final now = DateTime.now();
+      final step = PlanStep(
+        id: 's1',
+        phaseId: 'p',
+        ownerId: ben,
+        title: 'Ben’s step',
+        estimateHours: 1,
+        start: now,
+        due: now,
+      );
+      await b.saveStep(room, step);
+      await b.saveMaterial(
+        room,
+        StudyMaterial(
+          id: 'm1',
+          kind: MaterialKind.link,
+          title: 'Mine',
+          url: 'https://example.org',
+          ownerUid: ben,
+          stepId: 's1',
+          createdAt: now,
+        ),
+      );
+      // Ben can't simply give his step away.
+      expect(
+        () => b.saveStep(room, step.copyWith(ownerId: amy)),
+        throwsA(isA<BackendFailure>()),
+      );
+      await b.requestHandover(room, 's1', amy, 'Going away');
+      // A private chat between Ben and Mina, the same one whoever opens it.
+      final dm = await b.openThread(room, [mina]);
+      await b.sendThreadMessage(room, dm, 'Can I hand my step to Amy?');
+      // A group chat with both, which reopens rather than starting again.
+      final group = await b.openThread(room, [mina, amy]);
+      expect(await b.openThread(room, [amy, mina]), group);
+      await b.signOut();
+
+      // Amy can't take it on until the master agrees, and can't see Ben's
+      // materials, his chat with Mina, or add materials to his step.
+      await b.signInWithEmail('a@t.dev', 'secret1');
+      expect(
+        () => b.answerHandover(room, 's1', true),
+        throwsA(isA<BackendFailure>()),
+      );
+      expect(await b.materials(room).first, isEmpty);
+      final amysChats = await b.threads(room).first;
+      expect(amysChats.single.participants, hasLength(3));
+      expect(
+        () => b.threadMessages(room, dm).first,
+        throwsA(isA<BackendFailure>()),
+      );
+      expect(
+        () => b.saveMaterial(
+          room,
+          StudyMaterial(
+            id: 'm2',
+            kind: MaterialKind.link,
+            title: 'Not mine',
+            url: 'https://example.org',
+            ownerUid: amy,
+            stepId: 's1',
+            createdAt: now,
+          ),
+        ),
+        throwsA(isA<BackendFailure>()),
+      );
+      await b.signOut();
+
+      // The master sees the chat Ben started with her, agrees to the handover,
+      // and still can't see Ben's materials.
+      await b.signInWithEmail('m@t.dev', 'secret1');
+      expect(await b.openThread(room, [ben]), dm);
+      final chat = (await b.threads(room).first).firstWhere((t) => t.id == dm);
+      expect(chat.unreadFor(mina), isTrue);
+      expect(
+        (await b.threadMessages(room, dm).first).single.text,
+        contains('Amy'),
+      );
+      expect(await b.materials(room).first, isEmpty);
+      await b.reviewHandover(room, 's1', true);
+      await b.signOut();
+
+      // Now Amy decides, and the step becomes hers.
+      await b.signInWithEmail('a@t.dev', 'secret1');
+      await b.answerHandover(room, 's1', true);
+      final state = await b.watchClassroom(room).first;
+      expect(state.steps.single.ownerId, amy);
+      expect(
+        (await b.handovers(room).first).single.status,
+        HandoverStatus.accepted,
+      );
+    },
+  );
+
+  test('a master’s own handover goes straight to the person', () async {
+    final b = LocalBackend();
+    await b.registerWithEmail('Mina', 'm@t.dev', 'secret1');
+    final mina = b.currentUser!.uid;
+    final room = await b.createClassroom(
+      title: 'R',
+      description: '',
+      taskType: TaskType.build,
+      individual: false,
+    );
+    await b.savePhase(room, const PhaseRecord(id: 'p', title: 'P', order: 0));
+    final now = DateTime.now();
+    await b.saveStep(
+      room,
+      PlanStep(
+        id: 's1',
+        phaseId: 'p',
+        ownerId: mina,
+        title: 'Mina’s step',
+        estimateHours: 1,
+        start: now,
+        due: now,
+      ),
+    );
+    final code = (await b.watchClassroom(room).first).classroom.inviteCode;
+    await b.signOut();
+    await b.registerWithEmail('Amy', 'a@t.dev', 'secret1');
+    final amy = b.currentUser!.uid;
+    await b.joinWithCode(code);
+    await b.signOut();
+    await b.signInWithEmail('m@t.dev', 'secret1');
+    await b.requestHandover(room, 's1', amy, '');
+    expect(
+      (await b.handovers(room).first).single.status,
+      HandoverStatus.needsReceiver,
+    );
+    await b.signOut();
+    await b.signInWithEmail('a@t.dev', 'secret1');
+    await b.answerHandover(room, 's1', false);
+    expect((await b.watchClassroom(room).first).steps.single.ownerId, mina);
+  });
+
+  test(
+    'offers wait to be accepted; handovers are listed for everyone',
+    () async {
+      final b = LocalBackend();
+      await b.registerWithEmail('Mina', 'm@t.dev', 'secret1');
+      final mina = b.currentUser!.uid;
+      final room = await b.createClassroom(
+        title: 'R',
+        description: '',
+        taskType: TaskType.build,
+        individual: false,
+      );
+      await b.savePhase(room, const PhaseRecord(id: 'p', title: 'P', order: 0));
+      final now = DateTime.now();
+      await b.saveStep(
+        room,
+        PlanStep(
+          id: 's1',
+          phaseId: 'p',
+          ownerId: mina,
+          title: 'Mina’s step',
+          estimateHours: 1,
+          start: now,
+          due: now,
+        ),
+      );
+      final code = (await b.watchClassroom(room).first).classroom.inviteCode;
+      await b.signOut();
+      await b.registerWithEmail('Amy', 'a@t.dev', 'secret1');
+      final amy = b.currentUser!.uid;
+      await b.joinWithCode(code);
+      final board = await b.createBoard(title: 'Colours');
+      await b.makeOffer(
+        room,
+        Offer(
+          id: 'o1',
+          kind: OfferKind.board,
+          fromUid: amy,
+          toUid: mina,
+          createdAt: now,
+          title: 'Colours',
+          boardId: board.id,
+        ),
+      );
+      await b.makeOffer(
+        room,
+        Offer(
+          id: 'o2',
+          kind: OfferKind.material,
+          fromUid: amy,
+          toUid: mina,
+          createdAt: now,
+          stepId: 's1',
+          title: 'Guide',
+          url: 'https://example.org/guide',
+        ),
+      );
+      expect(
+        (await b.offers(room).first).map((o) => o.statusLabel),
+        everyElement('Request pending'),
+      );
+      await b.signOut();
+
+      // Ben sees neither offer.
+      await b.registerWithEmail('Ben', 'b@t.dev', 'secret1');
+      await b.joinWithCode(code);
+      expect(await b.offers(room).first, isEmpty);
+      await b.signOut();
+
+      await b.signInWithEmail('m@t.dev', 'secret1');
+      final offers = await b.offers(room).first;
+      final material = offers.firstWhere((o) => o.id == 'o2');
+      final boardOffer = offers.firstWhere((o) => o.id == 'o1');
+      await b.answerOffer(room, material, true);
+      expect((await b.materials(room).first).single.title, 'Guide');
+      await b.answerOffer(room, boardOffer, false);
+      expect(await b.watchBoard(amy, board.id).first, isNull);
+      expect(
+        () => b.answerOffer(room, material, false),
+        throwsA(isA<BackendFailure>()),
+      );
+      // A handover is listed for everyone in the classroom.
+      await b.requestHandover(room, 's1', amy, 'Busy');
+      await b.signOut();
+      await b.signInWithEmail('b@t.dev', 'secret1');
+      final seen = (await b.handovers(room).first).single;
+      expect(handoverLabel(seen.status), 'Acceptance pending');
+      expect(seen.note, isEmpty);
+    },
+  );
 
   test('hours read naturally for the activity groups', () {
     expect(hourLabel(0), '12 am');

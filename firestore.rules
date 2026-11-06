@@ -42,6 +42,85 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if signedIn();
       allow write: if signedIn() && me() == uid;
+
+      // Kanvas: a person's own boards. Private unless they share one with
+      // people by name, or with one classroom. Only the owner changes who it's
+      // shared with; people it's shared with to edit change only what's on it.
+      match /kanvas/{boardId} {
+        allow read: if signedIn() && (me() == uid || canSeeBoard(resource.data));
+        allow create: if signedIn() && me() == uid &&
+          request.resource.data.ownerUid == uid &&
+          validBoard(request.resource.data);
+        allow update: if signedIn() && validBoard(request.resource.data) && (
+          (me() == uid && request.resource.data.ownerUid == uid) ||
+          (canEditBoard(resource.data) &&
+            changedOnly(['data', 'updatedAt', 'updatedBy']) &&
+            request.resource.data.updatedBy == me()) ||
+          leavesBoard());
+
+        // Someone a board is shared with takes themselves off it, and only that.
+        function leavesBoard() {
+          return me() in resource.data.get('sharedWith', []) &&
+            changedOnly(['people', 'sharedWith']) &&
+            request.resource.data.sharedWith == resource.data.sharedWith.removeAll([me()]) &&
+            request.resource.data.people.diff(resource.data.people).affectedKeys().hasOnly([me()]) &&
+            !(me() in request.resource.data.people);
+        }
+        allow delete: if signedIn() && me() == uid;
+
+        match /versions/{vid} {
+          allow read: if signedIn() && (me() == uid ||
+            canSeeBoard(get(/databases/$(database)/documents/users/$(uid)/kanvas/$(boardId)).data));
+          allow create: if signedIn() &&
+            request.resource.data.savedBy == me() &&
+            request.resource.data.data is string &&
+            request.resource.data.data.size() <= 819200 &&
+            (me() == uid ||
+              canEditBoard(get(/databases/$(database)/documents/users/$(uid)/kanvas/$(boardId)).data));
+          allow update: if false;
+          allow delete: if signedIn() && me() == uid;
+        }
+
+        // A small picture of an image card, keyed by the file's Drive id, so
+        // everyone who can see the board sees it.
+        match /previews/{fid} {
+          allow read: if signedIn() && (me() == uid ||
+            canSeeBoard(get(/databases/$(database)/documents/users/$(uid)/kanvas/$(boardId)).data));
+          allow create, update: if signedIn() &&
+            request.resource.data.keys().hasOnly(['data', 'savedBy']) &&
+            request.resource.data.savedBy == me() &&
+            request.resource.data.data is bytes &&
+            request.resource.data.data.size() <= 204800 &&
+            (me() == uid ||
+              canEditBoard(get(/databases/$(database)/documents/users/$(uid)/kanvas/$(boardId)).data));
+          allow delete: if signedIn() && me() == uid;
+        }
+      }
+    }
+
+    function sharedViaClassroom(d) {
+      return d.get('classroomId', '') != '' &&
+        me() in room(d.classroomId).memberUids;
+    }
+
+    function canSeeBoard(d) {
+      return me() in d.get('sharedWith', []) || sharedViaClassroom(d);
+    }
+
+    function canEditBoard(d) {
+      return d.get('people', {}).get(me(), '') == 'edit' ||
+        (sharedViaClassroom(d) && d.get('classroomMode', 'view') == 'edit');
+    }
+
+    function validBoard(d) {
+      return d.data is string && d.data.size() <= 819200 &&
+        d.title is string && d.title.size() <= 200 &&
+        d.get('sharedWith', []) is list && d.get('sharedWith', []).size() <= 50;
+    }
+
+    // "Shared with me": boards anyone has shared with this person by name.
+    match /{path=**}/kanvas/{boardId} {
+      allow read: if signedIn() && me() in resource.data.get('sharedWith', []);
     }
 
     // Looking up one code is allowed; listing them all isn't.
@@ -146,7 +225,7 @@ service cloud.firestore {
 
         // Your own name, and when you last looked.
         allow update: if signedIn() && me() == uid &&
-          changedOnly(['name', 'photoUrl', 'lastSeenAt']);
+          changedOnly(['name', 'photoUrl', 'lastSeenAt', 'chatSeenAt']);
 
         allow delete: if (isMaster(cid) && uid != room(cid).masterUid) ||
           (signedIn() && me() == uid && !(me() in roomAfter(cid).memberUids)) ||
@@ -161,13 +240,32 @@ service cloud.firestore {
       match /steps/{sid} {
         allow read: if isMember(cid);
 
-        allow create: if isManager(cid) || (
+        allow create: if (isManager(cid) || (
           isMember(cid) &&
           request.resource.data.ownerUid == me() &&
           !finishesWithoutApproval(cid, 'todo')
-        );
+        )) && (request.resource.data.get('description', '') == '' ||
+          request.resource.data.ownerUid == me());
 
-        allow update: if isManager(cid) || ownStepUpdate(cid) || unlinksDeletedStep(cid);
+        allow update: if (isManager(cid) || ownStepUpdate(cid) || unlinksDeletedStep(cid) ||
+          receivesHandover(cid)) && descriptionByOwner();
+
+        // Taking on a step someone asked to hand you, once it's your turn.
+        function receivesHandover(cid) {
+          let path = /databases/$(database)/documents/classrooms/$(cid)/handovers/$(sid);
+          return isMember(cid) && exists(path) &&
+            get(path).data.toUid == me() &&
+            get(path).data.status == 'needsReceiver' &&
+            get(path).data.fromUid == resource.data.ownerUid &&
+            changedOnly(['ownerUid']) &&
+            request.resource.data.ownerUid == me();
+        }
+
+        // Only the person whose step it is writes its description.
+        function descriptionByOwner() {
+          return request.resource.data.get('description', '') == resource.data.get('description', '') ||
+            resource.data.ownerUid == me();
+        }
 
         allow delete: if isManager(cid) ||
           (isMember(cid) && resource.data.ownerUid == me());
@@ -177,11 +275,11 @@ service cloud.firestore {
             request.resource.data.status == 'done' && before != 'done';
         }
 
-        // Your own step, which you can hand to any other member.
+        // Your own step. Giving it to someone else needs a handover request.
         function ownStepUpdate(cid) {
           return isMember(cid) &&
             resource.data.ownerUid == me() &&
-            request.resource.data.ownerUid in room(cid).memberUids &&
+            request.resource.data.ownerUid == me() &&
             !finishesWithoutApproval(cid, resource.data.status);
         }
 
@@ -191,6 +289,249 @@ service cloud.firestore {
             changedOnly(['dependsOn']) &&
             resource.data.dependsOn.hasAll(request.resource.data.dependsOn);
         }
+
+        // A private thread between the step's owner and one other person.
+        // Nobody else can read it, the master included, and only its author
+        // can remove a comment. Nobody can edit one.
+        match /comments/{id} {
+          allow read: if isMember(cid) && me() in resource.data.participants;
+          allow create: if isMember(cid) &&
+            request.resource.data.keys().hasOnly(['authorUid', 'text', 'participants', 'createdAt']) &&
+            request.resource.data.authorUid == me() &&
+            request.resource.data.participants is list &&
+            request.resource.data.participants.size() == 2 &&
+            me() in request.resource.data.participants &&
+            get(/databases/$(database)/documents/classrooms/$(cid)/steps/$(sid)).data.ownerUid
+              in request.resource.data.participants &&
+            room(cid).memberUids.hasAll(request.resource.data.participants) &&
+            request.resource.data.text is string &&
+            request.resource.data.text.size() > 0 &&
+            request.resource.data.text.size() <= 2000;
+          allow update: if false;
+          allow delete: if isMember(cid) && resource.data.authorUid == me();
+        }
+      }
+
+      // Links, videos, notes and repositories on steps, and practice links.
+      // Only web links can be stored, and only their owner can change one.
+      match /resources/{rid} {
+        allow read: if isMember(cid) &&
+          (resource.data.type == 'practice' || resource.data.ownerUid == me());
+        allow create: if isMember(cid) && validMaterial() &&
+          (request.resource.data.type == 'practice' ||
+            get(/databases/$(database)/documents/classrooms/$(cid)/steps/$(request.resource.data.stepId)).data.ownerUid == me());
+        allow update: if isMember(cid) &&
+          resource.data.ownerUid == me() && validMaterial();
+        allow delete: if isMember(cid) &&
+          (resource.data.ownerUid == me() || isManager(cid));
+
+        function validMaterial() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['type', 'title', 'url', 'note', 'ownerUid', 'stepId', 'createdAt']) &&
+            d.ownerUid == me() &&
+            d.type in ['link', 'video', 'note', 'repo', 'practice'] &&
+            d.title is string && d.title.size() > 0 && d.title.size() <= 200 &&
+            d.note is string && d.note.size() <= 5000 &&
+            d.url is string && d.url.size() <= 2000 &&
+            d.stepId is string &&
+            (d.type == 'note' || d.url.matches('https?://[^\\s]+'));
+        }
+      }
+
+      // A file in the library. The file is in its owner's Google Drive; this
+      // keeps only its name, size and Drive link. Shared files are for the
+      // whole classroom, private ones for their owner. Only a step's owner
+      // files something under that step.
+      match /files/{fid} {
+        allow read: if isMember(cid) &&
+          (resource.data.shared == true || resource.data.ownerUid == me());
+        allow create: if isMember(cid) && validFile() &&
+          (request.resource.data.stepId == '' ||
+            get(/databases/$(database)/documents/classrooms/$(cid)/steps/$(request.resource.data.stepId)).data.ownerUid == me());
+        allow update: if isMember(cid) &&
+          resource.data.ownerUid == me() && validFile() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['shared', 'stepId']) &&
+          (request.resource.data.stepId == '' ||
+            get(/databases/$(database)/documents/classrooms/$(cid)/steps/$(request.resource.data.stepId)).data.ownerUid == me());
+        allow delete: if isMember(cid) &&
+          (resource.data.ownerUid == me() || isManager(cid));
+
+        function validFile() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['name', 'mimeType', 'size', 'url', 'ownerUid', 'stepId', 'shared', 'createdAt']) &&
+            d.ownerUid == me() &&
+            d.name is string && d.name.size() > 0 && d.name.size() <= 300 &&
+            d.mimeType is string && d.mimeType.size() <= 200 &&
+            d.size is int && d.size >= 0 && d.size <= 26214400 &&
+            d.url is string && d.url.size() <= 2000 &&
+            d.url.matches('https://(drive|docs)[.]google[.]com/.+') &&
+            d.stepId is string && d.stepId.size() <= 200 &&
+            d.shared is bool;
+        }
+      }
+
+      // An idea for someone's step: private to the two people unless either
+      // makes it public. Only the step's owner answers it, once.
+      match /suggestions/{id} {
+        allow read: if isMember(cid) &&
+          (resource.data.public == true || me() in resource.data.participants);
+        allow create: if isMember(cid) &&
+          request.resource.data.keys().hasOnly(['targetType', 'targetId', 'fromUid', 'toUid', 'participants', 'text', 'status', 'public', 'publicAt', 'createdAt']) &&
+          request.resource.data.fromUid == me() &&
+          request.resource.data.toUid != me() &&
+          request.resource.data.participants == [me(), request.resource.data.toUid] &&
+          request.resource.data.status == 'open' &&
+          request.resource.data.public is bool &&
+          request.resource.data.toUid ==
+            get(/databases/$(database)/documents/classrooms/$(cid)/steps/$(request.resource.data.targetId)).data.ownerUid &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 2000;
+        allow update: if isMember(cid) && (
+          (resource.data.toUid == me() &&
+            resource.data.status == 'open' &&
+            changedOnly(['status', 'answeredAt']) &&
+            request.resource.data.status in ['accepted', 'dismissed']) ||
+          (me() in resource.data.participants &&
+            changedOnly(['public', 'publicAt']) &&
+            request.resource.data.public is bool));
+        allow delete: if isMember(cid) && resource.data.fromUid == me();
+      }
+
+      // The classroom chat, for everyone in it. A message marked for everyone
+      // is a suggestion, and each person can only add or take back their own
+      // name from who has made the change.
+      match /chat/{id} {
+        allow read: if isMember(cid);
+        allow create: if isMember(cid) &&
+          request.resource.data.keys().hasOnly(['authorUid', 'text', 'forEveryone', 'appliedBy', 'createdAt']) &&
+          request.resource.data.authorUid == me() &&
+          request.resource.data.forEveryone is bool &&
+          request.resource.data.appliedBy == [] &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 2000;
+        allow update: if isMember(cid) &&
+          resource.data.forEveryone == true &&
+          changedOnly(['appliedBy']) &&
+          onlyMyName(resource.data.appliedBy, request.resource.data.appliedBy);
+        allow delete: if isMember(cid) &&
+          (resource.data.authorUid == me() || isMaster(cid));
+
+        function onlyMyName(before, after) {
+          let added = after.toSet().difference(before.toSet());
+          let removed = before.toSet().difference(after.toSet());
+          return (added == [me()].toSet() && removed.size() == 0) ||
+            (removed == [me()].toSet() && added.size() == 0);
+        }
+      }
+
+      // A private chat between two people, or a small group. Only the people
+      // in it can read it, or write in it, as themselves.
+      match /threads/{tid} {
+        allow read: if isMember(cid) && me() in resource.data.participants;
+        allow create: if isMember(cid) &&
+          request.resource.data.keys().hasOnly(['participants', 'createdBy', 'createdAt', 'lastAt', 'lastText', 'lastBy', 'readAt']) &&
+          request.resource.data.createdBy == me() &&
+          me() in request.resource.data.participants &&
+          request.resource.data.participants.size() >= 2 &&
+          request.resource.data.participants.size() <= 10 &&
+          room(cid).memberUids.hasAll(request.resource.data.participants) &&
+          (!tid.matches('dm_.*') || (
+            request.resource.data.participants.size() == 2 &&
+            request.resource.data.participants[0] < request.resource.data.participants[1] &&
+            tid == 'dm_' + request.resource.data.participants[0] + '_' + request.resource.data.participants[1]));
+        allow update: if isMember(cid) &&
+          me() in resource.data.participants &&
+          changedOnly(['lastAt', 'lastText', 'lastBy', 'readAt']) &&
+          request.resource.data.readAt.diff(resource.data.readAt).affectedKeys().hasOnly([me()]) &&
+          (request.resource.data.lastBy == resource.data.lastBy || request.resource.data.lastBy == me());
+
+        match /messages/{mid} {
+          allow read: if isMember(cid) &&
+            me() in get(/databases/$(database)/documents/classrooms/$(cid)/threads/$(tid)).data.participants;
+          allow create: if isMember(cid) &&
+            me() in getAfter(/databases/$(database)/documents/classrooms/$(cid)/threads/$(tid)).data.participants &&
+            request.resource.data.keys().hasOnly(['authorUid', 'text', 'createdAt']) &&
+            request.resource.data.authorUid == me() &&
+            request.resource.data.text is string &&
+            request.resource.data.text.size() > 0 &&
+            request.resource.data.text.size() <= 2000;
+          allow update: if false;
+          allow delete: if isMember(cid) && resource.data.authorUid == me();
+        }
+      }
+
+      // Asking to hand a step to someone else. A member's request waits for
+      // the master or a co-master; then the person receiving it decides.
+      // Everyone in the classroom can see who is handing what to whom; the
+      // reason goes privately to the people deciding.
+      match /handovers/{sid} {
+        allow read: if isMember(cid);
+        allow create: if isMember(cid) &&
+          request.resource.data.keys().hasOnly(['fromUid', 'toUid', 'participants', 'note', 'status', 'createdAt']) &&
+          request.resource.data.note == '' &&
+          request.resource.data.fromUid == me() &&
+          get(/databases/$(database)/documents/classrooms/$(cid)/steps/$(sid)).data.ownerUid == me() &&
+          request.resource.data.toUid != me() &&
+          request.resource.data.toUid in room(cid).memberUids &&
+          request.resource.data.participants == [me(), request.resource.data.toUid] &&
+          request.resource.data.note is string &&
+          request.resource.data.note.size() <= 2000 &&
+          request.resource.data.status == (isManager(cid) ? 'needsReceiver' : 'needsMaster');
+        allow update: if isMember(cid) && (
+          (isManager(cid) &&
+            resource.data.status == 'needsMaster' &&
+            changedOnly(['status', 'decidedBy', 'decidedAt']) &&
+            request.resource.data.status in ['needsReceiver', 'declined']) ||
+          (resource.data.toUid == me() &&
+            resource.data.status == 'needsReceiver' &&
+            changedOnly(['status', 'decidedAt']) &&
+            request.resource.data.status in ['accepted', 'declined']));
+        allow delete: if isMember(cid) && (
+          resource.data.fromUid == me() || isMaster(cid) ||
+          get(/databases/$(database)/documents/classrooms/$(cid)/steps/$(sid)).data.ownerUid == me());
+      }
+
+      // Boards shared with the classroom, or pinned to a step. Only the board's
+      // owner, a member, adds or removes one; everyone in the classroom can
+      // see the list.
+      match /boards/{boardId} {
+        allow read: if isMember(cid);
+        allow create, update: if isMember(cid) &&
+          request.resource.data.ownerUid == me() &&
+          exists(/databases/$(database)/documents/users/$(me())/kanvas/$(boardId));
+        allow delete: if isMember(cid) &&
+          (resource.data.ownerUid == me() || isMaster(cid));
+      }
+
+      // A board or study material offered to one person, waiting for them to
+      // accept it. Only the two of them can see it.
+      match /offers/{oid} {
+        allow read: if isMember(cid) && me() in resource.data.participants;
+        allow create: if isMember(cid) &&
+          request.resource.data.keys().hasOnly(['kind', 'fromUid', 'toUid', 'participants', 'status', 'stepId', 'title', 'boardOwner', 'boardId', 'edit', 'materialKind', 'url', 'note', 'createdAt']) &&
+          request.resource.data.fromUid == me() &&
+          request.resource.data.toUid != me() &&
+          request.resource.data.toUid in room(cid).memberUids &&
+          request.resource.data.participants == [me(), request.resource.data.toUid] &&
+          request.resource.data.status == 'pending' &&
+          request.resource.data.kind in ['board', 'material'] &&
+          request.resource.data.title is string && request.resource.data.title.size() <= 200 &&
+          request.resource.data.note is string && request.resource.data.note.size() <= 5000 &&
+          request.resource.data.url is string && request.resource.data.url.size() <= 2000 &&
+          (request.resource.data.kind != 'board' || (
+            request.resource.data.boardOwner == me() &&
+            exists(/databases/$(database)/documents/users/$(me())/kanvas/$(request.resource.data.boardId)))) &&
+          (request.resource.data.kind != 'material' ||
+            request.resource.data.materialKind == 'note' ||
+            request.resource.data.url.matches('https?://[^\\s]+'));
+        allow update: if isMember(cid) &&
+          resource.data.toUid == me() &&
+          resource.data.status == 'pending' &&
+          changedOnly(['status', 'answeredAt']) &&
+          request.resource.data.status in ['accepted', 'declined'];
+        allow delete: if isMember(cid) && resource.data.fromUid == me();
       }
 
       // Written once, by the person it says did it. Nobody can change an entry,
@@ -203,6 +544,21 @@ service cloud.firestore {
         allow update: if false;
         allow delete: if isMaster(cid);
       }
+    }
+
+    // Notes for one person, such as a reply in a private thread. Only they can
+    // read or clear their inbox, and only someone in a classroom with them can
+    // leave one, under their own name.
+    match /users/{uid}/inbox/{id} {
+      allow read, delete: if signedIn() && me() == uid;
+      allow update: if false;
+      allow create: if signedIn() && me() != uid &&
+        request.resource.data.keys().hasOnly(['classroomId', 'actorUid', 'kind', 'summary', 'targetId', 'createdAt']) &&
+        request.resource.data.actorUid == me() &&
+        request.resource.data.summary is string &&
+        request.resource.data.summary.size() <= 600 &&
+        me() in room(request.resource.data.classroomId).memberUids &&
+        uid in room(request.resource.data.classroomId).memberUids;
     }
 
     match /{document=**} {

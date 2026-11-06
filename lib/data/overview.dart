@@ -45,7 +45,22 @@ class Overview {
     required this.actions,
     required this.stats,
     required this.next,
+    this.notices = const [],
+    this.noticesSeenAt,
   });
+
+  /// What other people did that affects this person, newest first.
+  final List<MyAction> notices;
+
+  /// When they last opened their notifications.
+  final DateTime? noticesSeenAt;
+
+  /// Notifications they haven't opened yet.
+  int get unreadNotices {
+    final seen = noticesSeenAt;
+    if (seen == null) return notices.length;
+    return notices.where((n) => n.entry.createdAt.isAfter(seen)).length;
+  }
 
   final List<RoomSummary> rooms;
 
@@ -79,6 +94,14 @@ Future<Overview> loadOverview(Backend backend) async {
   final logs = await Future.wait([
     for (final room in classrooms) backend.activity(room.id, limit: 500),
   ]);
+  final noticesSeenAt = await backend.notificationsSeenAt();
+  var inbox = const <Notice>[];
+  try {
+    inbox = await backend.inbox();
+  } on Object {
+    // Notifications are a nicety; the rest of the dashboard still loads.
+  }
+  final roomById = {for (final c in classrooms) c.id: c};
 
   final rooms = <RoomSummary>[];
   final steps = <MyStep>[];
@@ -122,7 +145,19 @@ Future<Overview> loadOverview(Backend backend) async {
         if (entry.actorUid == me) MyAction(entry: entry, room: classrooms[i]),
   ]..sort((a, b) => b.entry.createdAt.compareTo(a.entry.createdAt));
 
+  final notices = [
+    for (var i = 0; i < logs.length; i++)
+      for (final entry in logs[i])
+        if (entry.affectsUid == me && entry.actorUid != me)
+          MyAction(entry: entry, room: classrooms[i]),
+    for (final n in inbox)
+      if (roomById[n.classroomId] != null)
+        MyAction(entry: n.entry, room: roomById[n.classroomId]!),
+  ]..sort((a, b) => b.entry.createdAt.compareTo(a.entry.createdAt));
+
   return Overview(
+    notices: notices.take(100).toList(),
+    noticesSeenAt: noticesSeenAt,
     rooms: rooms,
     steps: steps,
     actions: actions,
