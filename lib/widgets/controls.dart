@@ -7,6 +7,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/tokens.dart';
+import 'hover_hint.dart';
 
 /// How much of a glass pane is material. Thin for controls over the map, regular
 /// for bars and cards, thick for anything read at length.
@@ -82,6 +83,12 @@ class GlassPanel extends StatelessWidget {
       GlassWeight.regular => (20.0, 6.0),
       GlassWeight.thick => (28.0, 10.0),
     };
+    // Clearer glass needs more blur behind it to stay readable.
+    final sigma = switch (weight) {
+      GlassWeight.thin => 16.0,
+      GlassWeight.regular => 22.0,
+      GlassWeight.thick => 30.0,
+    };
     return ValueListenableBuilder<bool>(
       valueListenable: GlassBudget.lite,
       child: child,
@@ -119,7 +126,7 @@ class GlassPanel extends StatelessWidget {
                 : BackdropFilter.grouped(
                     filter: ui.ImageFilter.compose(
                       outer: const ui.ColorFilter.matrix(_saturate),
-                      inner: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                      inner: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
                     ),
                     child: body,
                   ),
@@ -187,6 +194,27 @@ class _GlassRimPainter extends CustomPainter {
           top,
           bottom,
         ]),
+    );
+    // Light caught on the inside of the edge, brightest at the top corners,
+    // like the lip of a curved pane.
+    final inner = rect.deflate(1.2);
+    if (inner.height < 6) return;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(inner, Radius.circular(radius - 1.7)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..shader = ui.Gradient.linear(
+          inner.topLeft,
+          inner.bottomRight,
+          [
+            top.withValues(alpha: top.a * 0.55),
+            top.withValues(alpha: 0),
+            top.withValues(alpha: 0),
+            top.withValues(alpha: top.a * 0.25),
+          ],
+          const [0, 0.35, 0.7, 1],
+        ),
     );
   }
 
@@ -356,8 +384,8 @@ class _GlobePainter extends CustomPainter {
           centre,
           lightReach,
           [
-            p.orb.withValues(alpha: (dark ? 0.15 : 0.12) + 0.04 * breath),
-            p.orb.withValues(alpha: dark ? 0.05 : 0.04),
+            p.orb.withValues(alpha: (dark ? 0.15 : 0.30) + 0.06 * breath),
+            p.orb.withValues(alpha: dark ? 0.05 : 0.12),
             p.orb.withValues(alpha: 0),
           ],
           [0, 0.45, 1],
@@ -366,8 +394,22 @@ class _GlobePainter extends CustomPainter {
 
     final line = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    final strength = dark ? 0.22 : 0.2;
+      ..strokeWidth = dark ? 1 : 1.3;
+    // In light the globe shines in full orange, with a soft glow round every
+    // line, so it reads as strongly on white as it does on black.
+    final strength = dark ? 0.22 : 0.8;
+    final glow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    void shine(void Function(Paint paint) draw, Paint core) {
+      if (!dark) {
+        glow
+          ..color = core.color.withValues(alpha: core.color.a * 0.22)
+          ..strokeWidth = core.strokeWidth + 4;
+        draw(glow);
+      }
+      draw(core);
+    }
 
     canvas.save();
     canvas.translate(centre.dx, centre.dy);
@@ -381,14 +423,12 @@ class _GlobePainter extends CustomPainter {
       line.color = p.orb.withValues(
         alpha: strength * (0.45 + 0.55 * across.abs()),
       );
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset.zero,
-          width: radius * 2 * across.abs(),
-          height: radius * 2,
-        ),
-        line,
+      final oval = Rect.fromCenter(
+        center: Offset.zero,
+        width: radius * 2 * across.abs(),
+        height: radius * 2,
       );
+      shine((paint) => canvas.drawOval(oval, paint), line);
     }
 
     // Lines of latitude, seen from a little above.
@@ -396,14 +436,12 @@ class _GlobePainter extends CustomPainter {
     for (var i = -3; i <= 3; i++) {
       final lat = i * math.pi / 8;
       final across = math.cos(lat) * radius * 2;
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(0, math.sin(lat) * radius),
-          width: across,
-          height: across * 0.26,
-        ),
-        line,
+      final oval = Rect.fromCenter(
+        center: Offset(0, math.sin(lat) * radius),
+        width: across,
+        height: across * 0.26,
       );
+      shine((paint) => canvas.drawOval(oval, paint), line);
     }
     canvas.restore();
 
@@ -411,13 +449,14 @@ class _GlobePainter extends CustomPainter {
     final ring = Paint()
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
-      ..color = p.orb.withValues(alpha: strength * 1.1);
+      ..color = p.orb.withValues(alpha: math.min(1, strength * 1.1));
     void arcs(double scale, double width, double start, List<double> sweeps) {
       ring.strokeWidth = width;
       final rect = Rect.fromCircle(center: centre, radius: radius * scale);
       var at = start * full;
       for (final sweep in sweeps) {
-        canvas.drawArc(rect, at, sweep, false, ring);
+        final from = at;
+        shine((paint) => canvas.drawArc(rect, from, sweep, false, paint), ring);
         at += full / sweeps.length;
       }
     }
@@ -519,7 +558,7 @@ class _PressButtonState extends State<PressButton> {
       ],
     );
 
-    return Semantics(
+    final button = Semantics(
       button: true,
       enabled: enabled,
       selected: widget.selected,
@@ -567,6 +606,10 @@ class _PressButtonState extends State<PressButton> {
         ),
       ),
     );
+    // A button that's only an icon says what it does when pointed at or held.
+    return widget.iconOnly
+        ? HoverHint(message: widget.label, child: button)
+        : button;
   }
 }
 
@@ -721,4 +764,24 @@ class SelectChip extends StatelessWidget {
       onTap: onTap,
     );
   }
+}
+
+/// A small pane of tinted glass for an icon or a selected item: colour inside,
+/// light on the rim.
+BoxDecoration glassTint(Palette p, Color colour, {double radius = 12}) {
+  final dark = p.brightness == Brightness.dark;
+  return BoxDecoration(
+    borderRadius: BorderRadius.circular(radius),
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        colour.withValues(alpha: dark ? 0.32 : 0.24),
+        colour.withValues(alpha: dark ? 0.12 : 0.08),
+      ],
+    ),
+    border: Border.all(
+      color: dark ? const Color(0x33FFFFFF) : const Color(0xB3FFFFFF),
+    ),
+  );
 }

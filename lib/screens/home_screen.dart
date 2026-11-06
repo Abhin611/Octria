@@ -7,8 +7,13 @@ import '../data/models.dart';
 import '../data/overview.dart';
 import '../graph/graph_painter.dart';
 import '../model/plan.dart';
+import '../kanvas/kanvas_home.dart';
+import 'requests_sheets.dart';
+import '../platform/app_badge.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
+import '../widgets/glass_motion.dart';
+import '../widgets/hover_hint.dart';
 import '../widgets/motion.dart';
 import 'classroom_forms.dart';
 import 'classroom_screen.dart';
@@ -32,6 +37,7 @@ enum _Tab {
     CupertinoIcons.waveform_path_ecg,
     CupertinoIcons.waveform_path_ecg,
   ),
+  kanvas('Kanvas', CupertinoIcons.paintbrush, CupertinoIcons.paintbrush_fill),
   timeline('Timeline', CupertinoIcons.calendar, CupertinoIcons.calendar_today),
   profile(
     'Profile',
@@ -78,6 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       _reload();
     }, onError: (Object _) {});
+    unawaited(_countImportant());
     final code = pendingJoinCode;
     if (code != null && code.isNotEmpty) {
       pendingJoinCode = null;
@@ -98,16 +105,55 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _overview = loadOverview(widget.backend);
     });
+    unawaited(_countImportant());
   }
+
+  /// How many requests wait on this person, across their classrooms.
+  int _important = 0;
+
+  List<RoomContext> _roomContexts(Overview o) {
+    final me = widget.backend.currentUser?.uid ?? '';
+    return [
+      for (final r in o.rooms)
+        if (!r.classroom.individual) RoomContext.of(r.state, me),
+    ];
+  }
+
+  Future<void> _countImportant() async {
+    try {
+      final o = await _overview;
+      final n = await importantCount(widget.backend, _roomContexts(o));
+      if (mounted && n != _important) setState(() => _important = n);
+      // The same two numbers as the bubble and the bell, on the app's icon.
+      unawaited(setAppBadge(n + o.unreadNotices));
+    } on Object {
+      // The badge can wait for the next load.
+    }
+  }
+
+  Future<void> _showImportant(Overview o) async {
+    await showGlassSheet<void>(
+      context,
+      (_) => ImportantSheet(backend: widget.backend, rooms: _roomContexts(o)),
+    );
+    _reload();
+  }
+
+  DateTime _loadedAt = DateTime.now();
 
   void _select(_Tab tab) {
     setState(() => _tab = tab);
-    _reload();
+    // Every classroom is read again only when the numbers may be stale;
+    // switching tabs alone shouldn't wait on the network.
+    if (DateTime.now().difference(_loadedAt) > const Duration(seconds: 30)) {
+      _loadedAt = DateTime.now();
+      _reload();
+    }
   }
 
   Future<void> _open(String id) async {
     await Navigator.of(context).push(
-      CupertinoPageRoute<void>(
+      GlassRoute<void>(
         builder: (_) => ClassroomScreen(
           onBrightnessChanged: widget.onBrightnessChanged,
           session: ClassroomSession(backend: widget.backend, classroomId: id),
@@ -148,6 +194,27 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Opening them is what clears the red count.
+  Future<void> _showNotifications(Overview o) async {
+    final fresh = o.unreadNotices;
+    unawaited(widget.backend.markNotificationsSeen().catchError((Object _) {}));
+    final roomOf = {for (final n in o.notices) n.entry.id: n.room.title};
+    await showGlassSheet<void>(
+      context,
+      (_) => ActivitySheet(
+        title: 'Notifications',
+        intro: 'What others did that affects you, newest first.',
+        empty:
+            'Nothing yet. You’ll hear here when someone comments on your '
+            'steps, suggests a change, hands you a step or approves your work.',
+        entries: [for (final n in o.notices) n.entry],
+        newCount: fresh,
+        detailOf: (e) => roomOf[e.id],
+      ),
+    );
+    _reload();
+  }
+
   void _toggleTheme() {
     final dark = Palette.of(context).brightness == Brightness.dark;
     widget.onBrightnessChanged(dark ? Brightness.light : Brightness.dark);
@@ -171,7 +238,12 @@ class _HomeScreenState extends State<HomeScreen> {
         return AnimatedSwitcher(
           duration: MediaQuery.disableAnimationsOf(context)
               ? Duration.zero
-              : const Duration(milliseconds: 200),
+              : const Duration(milliseconds: 260),
+          switchInCurve: Curves.linear,
+          switchOutCurve: Curves.linear,
+          layoutBuilder: onlyNewest,
+          transitionBuilder: (child, animation) =>
+              glassSwitch(child, animation, drift: 18),
           child: KeyedSubtree(
             key: ValueKey(_tab),
             child: switch (_tab) {
@@ -182,11 +254,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 onOpen: _open,
                 onToggleTheme: _toggleTheme,
                 onAdd: _showAdd,
+                onNotifications: () => _showNotifications(data),
+                important: _important,
+                onImportant: () => _showImportant(data),
               ),
               _Tab.activity => _ActivityPage(
                 overview: data!,
                 insets: insets,
                 onOpen: _open,
+              ),
+              _Tab.kanvas => KanvasHome(
+                backend: widget.backend,
+                overview: data!,
+                insets: insets,
+                onOpenClassroom: _open,
               ),
               _Tab.timeline => _TimelinePage(
                 overview: data!,
@@ -244,7 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     height: 64,
                     child: Center(
                       child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 480),
+                        constraints: const BoxConstraints(maxWidth: 540),
                         child: _BottomBar(
                           tab: _tab,
                           onSelect: _select,
@@ -288,12 +369,13 @@ class _BottomBar extends StatelessWidget {
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
             margin: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: on
-                  ? p.accent.withValues(alpha: 0.14)
-                  : const Color(0x00000000),
-              borderRadius: BorderRadius.circular(24),
-            ),
+            decoration: on
+                ? glassTint(p, p.accent, radius: 24)
+                : BoxDecoration(
+                    color: const Color(0x00000000),
+                    border: Border.all(color: const Color(0x00000000)),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -320,43 +402,48 @@ class _BottomBar extends StatelessWidget {
 
     return GlassPanel(
       radius: 32,
+      weight: GlassWeight.thin,
       child: Row(
         children: [
           item(_Tab.dashboard),
           item(_Tab.activity),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Pressable(
-              label: 'Add a classroom',
-              onTap: onAdd,
-              child: Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [p.accent, p.accentViolet],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: p.accent.withValues(alpha: 0.4),
-                      blurRadius: 14,
-                      offset: const Offset(0, 4),
+            child: HoverHint(
+              message: 'Add a classroom',
+              child: Pressable(
+                label: 'Add a classroom',
+                onTap: onAdd,
+                child: Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [p.accent, p.accentViolet],
                     ),
-                  ],
-                ),
-                child: Icon(
-                  CupertinoIcons.plus,
-                  color: p.brightness == Brightness.dark
-                      ? p.ground
-                      : const Color(0xFFFFFFFF),
-                  size: 22,
+                    boxShadow: [
+                      BoxShadow(
+                        color: p.accent.withValues(alpha: 0.4),
+                        blurRadius: 14,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    CupertinoIcons.plus,
+                    color: p.brightness == Brightness.dark
+                        ? p.ground
+                        : const Color(0xFFFFFFFF),
+                    size: 22,
+                  ),
                 ),
               ),
             ),
           ),
+          item(_Tab.kanvas),
           item(_Tab.timeline),
           item(_Tab.profile),
         ],
@@ -377,6 +464,7 @@ class _Rail extends StatelessWidget {
     final p = Palette.of(context);
     return GlassPanel(
       radius: 24,
+      weight: GlassWeight.thin,
       padding: const EdgeInsets.fromLTRB(12, 22, 12, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -401,12 +489,12 @@ class _Rail extends StatelessWidget {
                     horizontal: 10,
                     vertical: 10,
                   ),
-                  decoration: BoxDecoration(
-                    color: t == tab
-                        ? p.accent.withValues(alpha: 0.14)
-                        : const Color(0x00000000),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
+                  decoration: t == tab
+                      ? glassTint(p, p.accent, radius: 13)
+                      : BoxDecoration(
+                          border: Border.all(color: const Color(0x00000000)),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
                   child: Row(
                     children: [
                       Icon(
@@ -508,10 +596,7 @@ class _IconChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     width: size,
     height: size,
-    decoration: BoxDecoration(
-      color: colour.withValues(alpha: 0.15),
-      borderRadius: BorderRadius.circular(size * 0.3),
-    ),
+    decoration: glassTint(Palette.of(context), colour, radius: size * 0.32),
     child: Icon(icon, size: size * 0.56, color: colour),
   );
 }
@@ -697,7 +782,14 @@ class _DashboardPage extends StatefulWidget {
     required this.onOpen,
     required this.onToggleTheme,
     required this.onAdd,
+    required this.onNotifications,
+    required this.important,
+    required this.onImportant,
   });
+
+  /// Requests waiting on this person.
+  final int important;
+  final VoidCallback onImportant;
 
   final Backend backend;
   final Overview overview;
@@ -705,6 +797,7 @@ class _DashboardPage extends StatefulWidget {
   final ValueChanged<String> onOpen;
   final VoidCallback onToggleTheme;
   final VoidCallback onAdd;
+  final VoidCallback onNotifications;
 
   @override
   State<_DashboardPage> createState() => _DashboardPageState();
@@ -784,6 +877,32 @@ class _DashboardPageState extends State<_DashboardPage> {
                           child: _Heading(
                             _greeting,
                             detail: 'Here’s where your work stands.',
+                          ),
+                        ),
+                        CountBadge(
+                          count: widget.important,
+                          child: PressButton(
+                            label: widget.important == 0
+                                ? 'Important'
+                                : 'Important, ${widget.important} waiting',
+                            icon: CupertinoIcons.exclamationmark_bubble,
+                            iconOnly: true,
+                            quiet: true,
+                            height: 44,
+                            onTap: widget.onImportant,
+                          ),
+                        ),
+                        CountBadge(
+                          count: o.unreadNotices,
+                          child: PressButton(
+                            label: o.unreadNotices == 0
+                                ? 'Notifications'
+                                : 'Notifications, ${o.unreadNotices} new',
+                            icon: CupertinoIcons.bell,
+                            iconOnly: true,
+                            quiet: true,
+                            height: 44,
+                            onTap: widget.onNotifications,
                           ),
                         ),
                         PressButton(

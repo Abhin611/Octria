@@ -89,10 +89,15 @@ class BottomSheetHost extends StatefulWidget {
     required this.height,
     required this.builder,
     required this.onDismissed,
+    this.boxed = false,
   });
 
   final bool open;
   final double height;
+
+  /// A box of glass that opens whole inside its frame, rather than a sheet
+  /// that rests halfway up the screen; dragging down still closes it.
+  final bool boxed;
   final Widget Function(BuildContext, Widget grabber) builder;
   final VoidCallback onDismissed;
 
@@ -108,8 +113,8 @@ class _BottomSheetHostState extends State<BottomSheetHost>
     value: widget.height,
   );
 
-  double get _medium => widget.height * 0.42;
-  double get _large => widget.height * 0.08;
+  double get _medium => widget.boxed ? 0 : widget.height * 0.42;
+  double get _large => widget.boxed ? 0 : widget.height * 0.08;
   double get _closed => widget.height;
 
   @override

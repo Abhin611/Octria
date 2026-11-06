@@ -29,7 +29,15 @@ class StepPanel extends StatelessWidget {
     this.onApprove,
     this.onSendBack,
     this.onEdit,
+    this.collab,
+    this.onAddDependency,
+    this.onSaveDescription,
+    this.showNeeds = true,
   });
+
+  /// Whether this person sees the step's Needs. Only its owner does, in a
+  /// classroom.
+  final bool showNeeds;
 
   final Plan plan;
   final PlanStep step;
@@ -54,6 +62,16 @@ class StepPanel extends StatelessWidget {
   final VoidCallback? onApprove;
   final VoidCallback? onSendBack;
   final VoidCallback? onEdit;
+
+  /// Live materials, suggestions and comments. Without it, the sample plan's
+  /// own materials show instead.
+  final Widget? collab;
+
+  /// Picks another step this one needs. For the owner and the master.
+  final VoidCallback? onAddDependency;
+
+  /// Saves the step's description. Only ever given to the step's owner.
+  final ValueChanged<String>? onSaveDescription;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +136,13 @@ class StepPanel extends StatelessWidget {
                   plan.isOverdue(step) ? p.blocked : p.inkSoft,
                 ),
               ),
-              if (step.description.isNotEmpty) ...[
+              if (onSaveDescription != null)
+                _DescriptionBox(
+                  key: ValueKey('description-${step.id}'),
+                  text: step.description,
+                  onSave: onSaveDescription!,
+                )
+              else if (step.description.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(step.description, style: TypeRamp.body(p.ink)),
               ],
@@ -212,14 +236,31 @@ class StepPanel extends StatelessWidget {
                   expand: true,
                   onTap: onReopen,
                 ),
-              if (needs.isNotEmpty) ...[
+              if (showNeeds &&
+                  (needs.isNotEmpty ||
+                      (editable && onAddDependency != null))) ...[
                 sectionLabel('Needs'),
+                if (needs.isEmpty)
+                  Text(
+                    'Nothing yet. Add a step that has to be done first.',
+                    style: TypeRamp.label(p.inkSoft),
+                  ),
                 for (final d in needs)
                   _LinkRow(
                     plan: plan,
                     step: d,
                     onOpen: () => onOpenStep(d.id),
                     onRemove: editable ? () => onRemoveDependency(d.id) : null,
+                  ),
+                if (editable && onAddDependency != null)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: PressButton(
+                      label: 'Add a step it needs',
+                      icon: CupertinoIcons.plus,
+                      quiet: true,
+                      onTap: onAddDependency,
+                    ),
                   ),
               ],
               if (step.checklist.isNotEmpty) ...[
@@ -232,35 +273,39 @@ class StepPanel extends StatelessWidget {
                     onToggle: editable ? () => onToggleChecklist(i) : null,
                   ),
               ],
-              sectionLabel('Study materials'),
-              if (step.resources.isEmpty)
-                Text(
-                  'Nothing here yet. Files, links, videos and notes for this '
-                  'step will appear here.',
-                  style: TypeRamp.label(p.inkSoft),
-                )
-              else ...[
-                for (final r in step.resources) _ResourceRow(resource: r),
-                const SizedBox(height: 4),
-                Text(
-                  'Sample materials. Opening them arrives with the library.',
-                  style: TypeRamp.caption(p.inkFaint),
-                ),
-              ],
               if (step.skills.isNotEmpty) ...[
                 sectionLabel('Skills'),
                 Text(step.skills.join(' · '), style: TypeRamp.body(p.ink)),
               ],
-              if (step.comments > 0 || step.newSuggestions > 0) ...[
-                sectionLabel('Discussion'),
-                Text(
-                  [
-                    if (step.comments > 0) _count(step.comments, 'comment'),
-                    if (step.newSuggestions > 0)
-                      _count(step.newSuggestions, 'new suggestion'),
-                  ].join(' · '),
-                  style: TypeRamp.body(p.ink),
-                ),
+              if (collab != null)
+                collab!
+              else ...[
+                sectionLabel('Study materials'),
+                if (step.resources.isEmpty)
+                  Text(
+                    'Nothing here yet. Files, links, videos and notes for this '
+                    'step will appear here.',
+                    style: TypeRamp.label(p.inkSoft),
+                  )
+                else ...[
+                  for (final r in step.resources) _ResourceRow(resource: r),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Sample materials. Opening them arrives with the library.',
+                    style: TypeRamp.caption(p.inkFaint),
+                  ),
+                ],
+                if (step.comments > 0 || step.newSuggestions > 0) ...[
+                  sectionLabel('Discussion'),
+                  Text(
+                    [
+                      if (step.comments > 0) _count(step.comments, 'comment'),
+                      if (step.newSuggestions > 0)
+                        _count(step.newSuggestions, 'new suggestion'),
+                    ].join(' · '),
+                    style: TypeRamp.body(p.ink),
+                  ),
+                ],
               ],
               sectionLabel('Owner'),
               Wrap(
@@ -473,6 +518,82 @@ class _LinkRow extends StatelessWidget {
             onTap: onRemove,
           ),
       ],
+    );
+  }
+}
+
+/// The owner's own words about their step, for everyone else to read.
+class _DescriptionBox extends StatefulWidget {
+  const _DescriptionBox({super.key, required this.text, required this.onSave});
+
+  final String text;
+  final ValueChanged<String> onSave;
+
+  @override
+  State<_DescriptionBox> createState() => _DescriptionBoxState();
+}
+
+class _DescriptionBoxState extends State<_DescriptionBox> {
+  late final _controller = TextEditingController(text: widget.text);
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(() => setState(() {}));
+  }
+
+  @override
+  void didUpdateWidget(_DescriptionBox old) {
+    super.didUpdateWidget(old);
+    // Someone else's save arriving shouldn't wipe what's being typed.
+    if (widget.text != old.text && _controller.text == old.text) {
+      _controller.text = widget.text;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Palette.of(context);
+    final changed = _controller.text.trim() != widget.text.trim();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GlassField(
+            label: 'Description, for everyone to read',
+            controller: _controller,
+            maxLines: 4,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 5, 0, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Only you can write this. Everyone in the classroom can '
+                    'read it.',
+                    style: TypeRamp.caption(p.inkSoft),
+                  ),
+                ),
+                if (changed)
+                  PressButton(
+                    label: 'Save',
+                    prominent: true,
+                    height: 34,
+                    onTap: () => widget.onSave(_controller.text.trim()),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

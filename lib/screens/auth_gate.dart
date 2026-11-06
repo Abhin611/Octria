@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../data/backend.dart';
 import '../data/models.dart';
+import '../platform/app_badge.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
 import 'home_screen.dart';
@@ -26,6 +27,8 @@ class AuthGate extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.waiting) {
           page = const _Loading();
         } else if (snapshot.data == null) {
+          // Nobody signed in, so nothing waits on anyone.
+          setAppBadge(0);
           page = SignInScreen(backend: backend);
         } else {
           page = HomeScreen(
