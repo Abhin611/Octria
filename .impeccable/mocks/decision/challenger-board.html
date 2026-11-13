@@ -1,0 +1,41 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Gate Board</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{width:1440px;height:900px;overflow:hidden;font:14px/1.35 -apple-system,"Segoe UI",system-ui,sans-serif;color:#16181C;background:#F4F5F6;font-variant-numeric:tabular-nums}
+.side{position:absolute;left:0;top:0;width:232px;height:900px;background:#16181C;color:#D5D8DD;padding:18px 12px}
+.brand{font-size:24px;font-weight:700;letter-spacing:-.02em;padding:0 10px 18px;color:#fff}
+.nav div{padding:8px 10px;border-radius:9px;margin-bottom:2px}
+.nav .on{background:#2B2E35;color:#fff;font-weight:600}
+.lab{font-size:12px;color:#9CA1AA;padding:18px 10px 6px;font-weight:600}
+.bar{position:absolute;left:232px;top:0;right:0;height:60px;display:flex;align-items:center;gap:10px;padding:0 20px;background:#fff;border-bottom:1px solid #E2E4E7}
+.bar h1{font-size:24px;font-weight:700;letter-spacing:-.02em;flex:1}
+.btn{padding:6px 12px;border-radius:8px;background:#ECEEF0;font-weight:500}
+.btn.pri{background:#16181C;color:#fff}
+.pass{position:absolute;left:252px;top:78px;width:1168px;height:150px;background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.08);display:grid;grid-template-columns:1.8fr 1fr 1fr .9fr}
+.pass>div{padding:18px 22px;border-right:1px dashed #C9CCD1}
+.pass>div:last-child{border:0}
+.pass small{display:block;color:#5F6670;font-size:12px;font-weight:600}
+.pass b{font-size:36px;letter-spacing:-.025em;line-height:1.15;display:block}
+.pass i{font-style:normal;font-size:28px;font-weight:700}
+svg{position:absolute;left:232px;top:244px}
+text{font-family:-apple-system,"Segoe UI",system-ui,sans-serif}
+.phase{font-size:22px;font-weight:700}
+.who{font-size:13px;font-weight:600;fill:#5F6670}
+.st{font-size:13px}
+.note{position:absolute;left:252px;bottom:14px;font-size:12px;color:#5F6670}
+</style></head><body>
+<aside class="side"><div class="brand">Pimeon</div><div class="nav"><div class="on">Campus Events App</div><div>Exam prep: Physics</div><div>Fest planning</div></div><div class="lab">This classroom</div><div class="nav"><div class="on">Graph</div><div>Timeline</div><div>Library</div><div>Progress</div></div></aside>
+<header class="bar"><h1>Campus Events App</h1><span class="btn">Everyone</span><span class="btn">Filter</span><span class="btn pri">Focus on me</span></header>
+<section class="pass"><div><small>Your next step</small><b>Build event list</b></div><div><small>Phase</small><i>Build</i></div><div><small>Due</small><i>Thu 19 Nov</i></div><div><small>Estimate</small><i>6 h</i></div></section>
+<svg width="1208" height="640" viewBox="0 0 1208 640">
+<g stroke="#E2E4E7"><path d="M340 0V640M610 0V640M880 0V640"/></g>
+<text class="phase" x="100" y="34">Research</text><text class="phase" x="358" y="34">Design</text><text class="phase" x="628" y="34">Build</text><text class="phase" x="898" y="34">Launch</text>
+<text class="who" x="18" y="115">You</text><text class="who" x="18" y="255">Asha</text><text class="who" x="18" y="395">Ben</text><text class="who" x="18" y="535">Chen</text>
+<g fill="none" stroke="#9AA0A8" stroke-width="1.5"><path d="M270 110H360M520 110H640M800 110H910M270 250H360M520 250C560 250 560 390 640 390M800 530C840 530 850 390 910 390M800 530C720 530 720 200 720 140"/></g>
+<g fill="#fff" stroke="#C9CCD1"><rect x="110" y="84" width="160" height="52" rx="8"/><rect x="360" y="84" width="160" height="52" rx="8"/><rect x="910" y="84" width="160" height="52" rx="8"/><rect x="110" y="224" width="160" height="52" rx="8"/><rect x="360" y="224" width="160" height="52" rx="8"/><rect x="640" y="364" width="160" height="52" rx="8"/><rect x="910" y="364" width="160" height="52" rx="8"/><rect x="640" y="504" width="160" height="52" rx="8"/></g>
+<rect x="640" y="84" width="160" height="56" rx="8" fill="#16181C"/>
+<rect x="640" y="224" width="160" height="52" rx="8" fill="#F5B400"/>
+<g class="st"><text x="124" y="115">Interview students</text><text x="384" y="115">Sketch flows</text><text x="924" y="115">Test with friends</text><text x="134" y="255">Survey apps</text><text x="392" y="255">Write brief</text><text x="664" y="255" font-weight="700">Sign-in: moved to you?</text><text x="660" y="395">Design event card</text><text x="944" y="395">Store listing</text><text x="668" y="535">Set up Firebase</text><text x="668" y="117" fill="#fff" font-weight="700">Build event list</text></g>
+</svg>
+<div class="note">Sample data</div>
+</body></html>

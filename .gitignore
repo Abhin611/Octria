@@ -47,6 +47,10 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
+# Local design tool settings and review screenshots
+.impeccable/config.local.json
+.impeccable/review/
+
 # Rules test tools and emulator logs
 node_modules/
 *-debug.log

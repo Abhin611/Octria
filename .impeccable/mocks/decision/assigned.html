@@ -1,0 +1,57 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Overprint Course</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{width:1440px;height:900px;overflow:hidden;font:14px/1.35 -apple-system,"Segoe UI",system-ui,sans-serif;color:#22251F;background:#FBFBF7;letter-spacing:-.005em}
+.side{position:absolute;left:0;top:0;width:232px;height:900px;background:#F1F1EA;border-right:1px solid #E2E2D8;padding:18px 12px}
+.brand{font-size:24px;font-weight:700;letter-spacing:-.02em;padding:0 10px 18px}
+.nav div{padding:8px 10px;border-radius:9px;margin-bottom:2px;color:#4C5046}
+.nav .on{background:#FFFFFF;color:#22251F;font-weight:600;box-shadow:0 1px 2px rgba(50,50,30,.12)}
+.lab{font-size:12px;color:#6F7367;padding:18px 10px 6px;font-weight:600}
+.bar{position:absolute;left:232px;top:0;right:0;height:60px;display:flex;align-items:center;gap:10px;padding:0 20px;background:rgba(251,251,247,.8);border-bottom:1px solid #E7E7DD}
+.bar h1{font-size:24px;font-weight:700;letter-spacing:-.02em;flex:1}
+.btn{padding:6px 12px;border-radius:8px;background:#EDEDE4;font-weight:500}
+.btn.pri{background:#C2187A;color:#fff}
+.next{position:absolute;right:22px;top:78px;width:300px;background:#FFFFFFEE;border-radius:14px;box-shadow:0 8px 28px rgba(50,40,30,.14);padding:14px 16px;z-index:2}
+.next small{color:#C2187A;font-weight:700;font-size:12px}
+.next b{display:block;font-size:24px;line-height:1.15;letter-spacing:-.02em;margin:3px 0 7px}
+.next p{color:#5A5E52;font-size:13px}
+svg{position:absolute;left:232px;top:60px}
+text{font-family:-apple-system,"Segoe UI",system-ui,sans-serif}
+.phase{font-size:22px;font-weight:700;fill:#3B3E34;letter-spacing:-.01em}
+.who{font-size:13px;font-weight:600;fill:#6F7367}
+.st{font-size:13px;fill:#3B3E34}
+.me{font-size:14px;font-weight:600;fill:#22251F}
+.note{position:absolute;left:252px;bottom:14px;font-size:12px;color:#6F7367}
+</style></head><body>
+<aside class="side"><div class="brand">Pimeon</div><div class="nav"><div class="on">Campus Events App</div><div>Exam prep: Physics</div><div>Fest planning</div></div><div class="lab">This classroom</div><div class="nav"><div class="on">Graph</div><div>Timeline</div><div>Library</div><div>Progress</div></div></aside>
+<header class="bar"><h1>Campus Events App</h1><span class="btn">Everyone</span><span class="btn">Filter</span><span class="btn pri">Focus on me</span></header>
+<div class="next"><small>Your next step</small><b>Build event list</b><p>Due Thu 19 Nov. Waiting on nothing: Set up Firebase just finished.</p></div>
+<svg width="1208" height="840" viewBox="0 0 1208 840">
+<!-- terrain tints for phases -->
+<rect x="70" y="0" width="270" height="840" fill="#F3F6E9"/><rect x="340" y="0" width="270" height="840" fill="#FBFBF7"/><rect x="610" y="0" width="270" height="840" fill="#EEF5F7"/><rect x="880" y="0" width="328" height="840" fill="#FBFBF7"/>
+<!-- contour hairlines, only in terrain -->
+<g fill="none" stroke="#8A5A2B" stroke-opacity=".13"><path d="M70 640c80-40 170 20 270-30"/><path d="M70 670c90-30 180 25 270-25"/><path d="M610 90c90 30 170-30 270 0"/><path d="M610 120c90 30 170-25 270 5"/></g>
+<text class="phase" x="88" y="44">Research</text><text class="phase" x="358" y="44">Design</text><text class="phase" x="628" y="44">Build</text><text class="phase" x="898" y="44">Launch</text>
+<text class="who" x="14" y="175">You</text><text class="who" x="14" y="335">Asha</text><text class="who" x="14" y="495">Ben</text><text class="who" x="14" y="655">Chen</text>
+<!-- other members' arrows, quiet -->
+<g fill="none" stroke="#A8AB9E" stroke-width="1.5"><path d="M205 330H440"/><path d="M440 330C520 330 520 490 600 490"/><path d="M740 650C810 650 800 490 880 490"/><path d="M600 490H700V330"/><path d="M740 650H960"/></g>
+<g fill="none" stroke="#2E8B57" stroke-width="2"><path d="M205 170C280 170 300 330 370 330" stroke-opacity=".0"/></g>
+<path d="M660 650C690 500 700 300 748 196" fill="none" stroke="#2E8B57" stroke-width="2.5"/>
+<!-- your route overprint -->
+<path d="M205 170H440M440 170H740M740 170H1010" fill="none" stroke="#C2187A" stroke-width="3.5"/>
+<!-- other nodes -->
+<g><circle cx="205" cy="330" r="12" fill="#2E8B57"/><text class="st" x="124" y="360">Survey existing apps</text>
+<circle cx="440" cy="330" r="12" fill="#2E8B57"/><text class="st" x="392" y="360">Write brief</text>
+<circle cx="600" cy="490" r="12" fill="#fff" stroke="#1F6FB2" stroke-width="3"/><path d="M600 478a12 12 0 0 1 0 24z" fill="#1F6FB2"/><text class="st" x="540" y="520">Design event card</text>
+<circle cx="700" cy="330" r="12" fill="#fff" stroke="#8B8E82" stroke-width="2"/><text class="st" x="670" y="360">Add sign-in</text>
+<circle cx="660" cy="650" r="12" fill="#2E8B57"/><text class="st" x="622" y="680">Set up Firebase</text>
+<circle cx="880" cy="490" r="12" fill="#fff" stroke="#8B8E82" stroke-width="2"/><text class="st" x="840" y="520">Write store listing</text>
+<circle cx="960" cy="650" r="12" fill="#fff" stroke="#D1352B" stroke-width="3"/><path d="M952 642l16 16" stroke="#D1352B" stroke-width="3"/><text class="st" x="905" y="680">Publish to Play Store</text></g>
+<!-- your controls -->
+<g fill="#FBFBF7" stroke="#C2187A" stroke-width="3.5"><circle cx="205" cy="170" r="15"/><circle cx="440" cy="170" r="15"/><circle cx="1010" cy="170" r="15"/></g>
+<g fill="#C2187A"><circle cx="205" cy="170" r="6"/><circle cx="440" cy="170" r="6"/></g>
+<circle cx="748" cy="170" r="27" fill="#FBFBF7" stroke="#C2187A" stroke-width="5"/><circle cx="748" cy="170" r="14" fill="#C2187A"/>
+<text class="me" x="146" y="208">Interview students</text><text class="me" x="396" y="208">Sketch flows</text><text class="me" x="700" y="218">Build event list</text><text class="me" x="950" y="208">Test with friends</text>
+</svg>
+<div class="note">Sample data</div>
+</body></html>

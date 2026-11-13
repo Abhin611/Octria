@@ -1,0 +1,4 @@
+{
+  "OCTRIA_RECAPTCHA_KEY": "your-recaptcha-enterprise-site-key",
+  "OCTRIA_APPCHECK_DEBUG_TOKEN": "your-app-check-debug-token"
+}

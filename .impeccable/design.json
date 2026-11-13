@@ -1,0 +1,1234 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-04T08:06:58Z",
+  "title": "Design System: Octria",
+  "extensions": {
+    "colorMeta": {
+      "ground": {
+        "role": "neutral",
+        "displayName": "Ground",
+        "canonical": "#F2F5FA",
+        "tonalRamp": [
+          "#070B12",
+          "#152237",
+          "#253B60",
+          "#36568C",
+          "#4771B8",
+          "#7796CB",
+          "#AABEDE",
+          "#E5EBF5"
+        ]
+      },
+      "ground-dark": {
+        "role": "neutral",
+        "displayName": "Ground (dark)",
+        "canonical": "#0E1116",
+        "tonalRamp": [
+          "#0A0C10",
+          "#1E242F",
+          "#343F51",
+          "#4B5C76",
+          "#63789C",
+          "#8C9BB6",
+          "#B7C1D1",
+          "#E9ECF1"
+        ]
+      },
+      "ambient-blue": {
+        "role": "tertiary",
+        "displayName": "Ambient Blue",
+        "canonical": "#BFD9FF",
+        "tonalRamp": [
+          "#000A1A",
+          "#001F4C",
+          "#003685",
+          "#004FC2",
+          "#0068FF",
+          "#428FFF",
+          "#8AB9FF",
+          "#DBEAFF"
+        ]
+      },
+      "ambient-blue-dark": {
+        "role": "tertiary",
+        "displayName": "Ambient Blue (dark)",
+        "canonical": "#1B2F55",
+        "tonalRamp": [
+          "#060B13",
+          "#12203A",
+          "#203865",
+          "#2F5193",
+          "#3D6BC2",
+          "#7091D2",
+          "#A6BBE3",
+          "#E4EAF6"
+        ]
+      },
+      "ambient-pink": {
+        "role": "tertiary",
+        "displayName": "Ambient Pink",
+        "canonical": "#FFD6EC",
+        "tonalRamp": [
+          "#1A000E",
+          "#4D0029",
+          "#850047",
+          "#C20068",
+          "#FF0089",
+          "#FF42A8",
+          "#FF8AC9",
+          "#FFDBEE"
+        ]
+      },
+      "ambient-pink-dark": {
+        "role": "tertiary",
+        "displayName": "Ambient Pink (dark)",
+        "canonical": "#3A1C46",
+        "tonalRamp": [
+          "#0F0712",
+          "#2D1637",
+          "#4E265F",
+          "#73378A",
+          "#9749B6",
+          "#B278C9",
+          "#CFABDD",
+          "#F0E6F5"
+        ]
+      },
+      "ambient-mint": {
+        "role": "tertiary",
+        "displayName": "Ambient Mint",
+        "canonical": "#CFF3E6",
+        "tonalRamp": [
+          "#05140F",
+          "#0F3D2D",
+          "#1B6A4D",
+          "#279B71",
+          "#33CC95",
+          "#68D9B0",
+          "#A1E8CE",
+          "#E2F8F0"
+        ]
+      },
+      "ambient-mint-dark": {
+        "role": "tertiary",
+        "displayName": "Ambient Mint (dark)",
+        "canonical": "#0F3A38",
+        "tonalRamp": [
+          "#051414",
+          "#103D3B",
+          "#1B6966",
+          "#289A95",
+          "#34CBC4",
+          "#69D8D3",
+          "#A2E7E4",
+          "#E3F8F7"
+        ]
+      },
+      "glass-thin": {
+        "role": "neutral",
+        "displayName": "Glass Thin",
+        "canonical": "#FFFFFF73",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "glass-thin-dark": {
+        "role": "neutral",
+        "displayName": "Glass Thin (dark)",
+        "canonical": "#1C20286B",
+        "tonalRamp": [
+          "#0A0C0F",
+          "#1F242D",
+          "#373E4E",
+          "#505B72",
+          "#697896",
+          "#909BB1",
+          "#BAC1CF",
+          "#EAECF0"
+        ]
+      },
+      "glass-regular": {
+        "role": "neutral",
+        "displayName": "Glass Regular",
+        "canonical": "#FFFFFF94",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "glass-regular-dark": {
+        "role": "neutral",
+        "displayName": "Glass Regular (dark)",
+        "canonical": "#1C20288C",
+        "tonalRamp": [
+          "#0A0C0F",
+          "#1F242D",
+          "#373E4E",
+          "#505B72",
+          "#697896",
+          "#909BB1",
+          "#BAC1CF",
+          "#EAECF0"
+        ]
+      },
+      "glass-thick": {
+        "role": "neutral",
+        "displayName": "Glass Thick",
+        "canonical": "#FFFFFFD1",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "glass-thick-dark": {
+        "role": "neutral",
+        "displayName": "Glass Thick (dark)",
+        "canonical": "#1C2028D6",
+        "tonalRamp": [
+          "#0A0C0F",
+          "#1F242D",
+          "#373E4E",
+          "#505B72",
+          "#697896",
+          "#909BB1",
+          "#BAC1CF",
+          "#EAECF0"
+        ]
+      },
+      "rim-top": {
+        "role": "neutral",
+        "displayName": "Rim Top",
+        "canonical": "#FFFFFFE6",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "rim-top-dark": {
+        "role": "neutral",
+        "displayName": "Rim Top (dark)",
+        "canonical": "#FFFFFF47",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "rim-bottom": {
+        "role": "neutral",
+        "displayName": "Rim Bottom",
+        "canonical": "#FFFFFF40",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "rim-bottom-dark": {
+        "role": "neutral",
+        "displayName": "Rim Bottom (dark)",
+        "canonical": "#FFFFFF0F",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "sheen": {
+        "role": "neutral",
+        "displayName": "Sheen",
+        "canonical": "#FFFFFF33",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "sheen-dark": {
+        "role": "neutral",
+        "displayName": "Sheen (dark)",
+        "canonical": "#FFFFFF12",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "node-top": {
+        "role": "neutral",
+        "displayName": "Node Top",
+        "canonical": "#FFFFFFE6",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "node-top-dark": {
+        "role": "neutral",
+        "displayName": "Node Top (dark)",
+        "canonical": "#333945D9",
+        "tonalRamp": [
+          "#0B0C0F",
+          "#21242C",
+          "#383F4C",
+          "#525C6F",
+          "#6C7993",
+          "#929CAF",
+          "#BCC1CD",
+          "#EAECF0"
+        ]
+      },
+      "node-bottom": {
+        "role": "neutral",
+        "displayName": "Node Bottom",
+        "canonical": "#FFFFFFB8",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "node-bottom-dark": {
+        "role": "neutral",
+        "displayName": "Node Bottom (dark)",
+        "canonical": "#272C36B8",
+        "tonalRamp": [
+          "#0B0C0F",
+          "#20242C",
+          "#383F4D",
+          "#515C71",
+          "#6B7994",
+          "#919CB0",
+          "#BBC1CE",
+          "#EAECF0"
+        ]
+      },
+      "node-rim": {
+        "role": "neutral",
+        "displayName": "Node Rim",
+        "canonical": "#1C274433",
+        "tonalRamp": [
+          "#070A12",
+          "#161F36",
+          "#27365E",
+          "#394F89",
+          "#4A68B5",
+          "#798FC8",
+          "#ACB9DD",
+          "#E6EAF5"
+        ]
+      },
+      "node-rim-dark": {
+        "role": "neutral",
+        "displayName": "Node Rim (dark)",
+        "canonical": "#FFFFFF1F",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "raised-dark": {
+        "role": "neutral",
+        "displayName": "Raised (dark)",
+        "canonical": "#23272F",
+        "tonalRamp": [
+          "#0B0C0F",
+          "#21242C",
+          "#393F4C",
+          "#535C6F",
+          "#6D7992",
+          "#939CAE",
+          "#BCC1CD",
+          "#EBECF0"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#1C27441F",
+        "tonalRamp": [
+          "#070A12",
+          "#161F36",
+          "#27365E",
+          "#394F89",
+          "#4A68B5",
+          "#798FC8",
+          "#ACB9DD",
+          "#E6EAF5"
+        ]
+      },
+      "hairline-dark": {
+        "role": "neutral",
+        "displayName": "Hairline (dark)",
+        "canonical": "#FFFFFF1F",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "outline": {
+        "role": "neutral",
+        "displayName": "Outline",
+        "canonical": "#AAB2C4",
+        "tonalRamp": [
+          "#0A0C0F",
+          "#1F242D",
+          "#363E4E",
+          "#4F5A72",
+          "#687797",
+          "#909AB2",
+          "#BAC0CF",
+          "#EAECF0"
+        ]
+      },
+      "outline-dark": {
+        "role": "neutral",
+        "displayName": "Outline (dark)",
+        "canonical": "#4C5462",
+        "tonalRamp": [
+          "#0B0C0E",
+          "#21252B",
+          "#3A404B",
+          "#555E6D",
+          "#6F7B90",
+          "#959DAD",
+          "#BDC2CC",
+          "#EBEDEF"
+        ]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "Control",
+        "canonical": "#1C274414",
+        "tonalRamp": [
+          "#070A12",
+          "#161F36",
+          "#27365E",
+          "#394F89",
+          "#4A68B5",
+          "#798FC8",
+          "#ACB9DD",
+          "#E6EAF5"
+        ]
+      },
+      "control-dark": {
+        "role": "neutral",
+        "displayName": "Control (dark)",
+        "canonical": "#FFFFFF1F",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#1B1F27",
+        "tonalRamp": [
+          "#0A0C0F",
+          "#1F242D",
+          "#363E4E",
+          "#4F5B73",
+          "#687897",
+          "#8F9BB2",
+          "#BAC1CF",
+          "#EAECF0"
+        ]
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "Ink (dark)",
+        "canonical": "#F2F4F8",
+        "tonalRamp": [
+          "#090B11",
+          "#1B2232",
+          "#2E3C56",
+          "#44577E",
+          "#5973A6",
+          "#8497BD",
+          "#B3BED6",
+          "#E8EBF3"
+        ]
+      },
+      "ink-soft": {
+        "role": "neutral",
+        "displayName": "Ink Soft",
+        "canonical": "#474E5C",
+        "tonalRamp": [
+          "#0B0C0E",
+          "#21252B",
+          "#3A3F4B",
+          "#545D6D",
+          "#6F7A90",
+          "#949DAD",
+          "#BDC2CC",
+          "#EBECEF"
+        ]
+      },
+      "ink-soft-dark": {
+        "role": "neutral",
+        "displayName": "Ink Soft (dark)",
+        "canonical": "#C3C8D2",
+        "tonalRamp": [
+          "#0B0C0F",
+          "#21242C",
+          "#393F4C",
+          "#535C6F",
+          "#6D7992",
+          "#939CAE",
+          "#BCC2CD",
+          "#EBECF0"
+        ]
+      },
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Ink Faint",
+        "canonical": "#5C6372",
+        "tonalRamp": [
+          "#0B0C0E",
+          "#22252A",
+          "#3B4049",
+          "#575D6B",
+          "#727B8D",
+          "#979DAB",
+          "#BEC2CB",
+          "#EBECEF"
+        ]
+      },
+      "ink-faint-dark": {
+        "role": "neutral",
+        "displayName": "Ink Faint (dark)",
+        "canonical": "#A2A8B4",
+        "tonalRamp": [
+          "#0B0C0E",
+          "#22252A",
+          "#3B4049",
+          "#575D6B",
+          "#727B8D",
+          "#979DAB",
+          "#BEC2CB",
+          "#EBEDEF"
+        ]
+      },
+      "overprint-magenta": {
+        "role": "primary",
+        "displayName": "Overprint Magenta",
+        "canonical": "#C2187A",
+        "tonalRamp": [
+          "#17030E",
+          "#44082B",
+          "#760F4A",
+          "#AC156C",
+          "#E31C8F",
+          "#EA57AC",
+          "#F297CB",
+          "#FBDFEF"
+        ]
+      },
+      "overprint-magenta-dark": {
+        "role": "primary",
+        "displayName": "Overprint Magenta (dark)",
+        "canonical": "#F2589F",
+        "tonalRamp": [
+          "#18020C",
+          "#470624",
+          "#7B0A3E",
+          "#B40E5A",
+          "#ED1277",
+          "#F1509A",
+          "#F792C0",
+          "#FCDEEC"
+        ]
+      },
+      "on-overprint": {
+        "role": "primary",
+        "displayName": "On Overprint",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "on-overprint-dark": {
+        "role": "primary",
+        "displayName": "On Overprint (dark)",
+        "canonical": "#2A0518",
+        "tonalRamp": [
+          "#17030D",
+          "#440827",
+          "#760E44",
+          "#AD1563",
+          "#E41B82",
+          "#EB56A3",
+          "#F396C6",
+          "#FBDFEE"
+        ]
+      },
+      "status-done": {
+        "role": "secondary",
+        "displayName": "Status Done",
+        "canonical": "#1F7F4C",
+        "tonalRamp": [
+          "#05140C",
+          "#0F3D25",
+          "#1A6B40",
+          "#269C5D",
+          "#32CD7B",
+          "#67DA9D",
+          "#A1E8C2",
+          "#E2F8EC"
+        ]
+      },
+      "status-done-dark": {
+        "role": "secondary",
+        "displayName": "Status Done (dark)",
+        "canonical": "#55BD84",
+        "tonalRamp": [
+          "#07120C",
+          "#153725",
+          "#25603F",
+          "#368C5D",
+          "#47B87A",
+          "#77CA9D",
+          "#ABDEC2",
+          "#E5F5EC"
+        ]
+      },
+      "status-doing": {
+        "role": "secondary",
+        "displayName": "Status Doing",
+        "canonical": "#1A67AD",
+        "tonalRamp": [
+          "#030D16",
+          "#0A2843",
+          "#114573",
+          "#1964A8",
+          "#2184DE",
+          "#5BA4E6",
+          "#99C6F0",
+          "#E0EEFA"
+        ]
+      },
+      "status-doing-dark": {
+        "role": "secondary",
+        "displayName": "Status Doing (dark)",
+        "canonical": "#6AB0EA",
+        "tonalRamp": [
+          "#030E16",
+          "#092943",
+          "#104774",
+          "#1868AA",
+          "#2088E0",
+          "#5AA7E8",
+          "#98C8F1",
+          "#E0EEFB"
+        ]
+      },
+      "status-waiting": {
+        "role": "secondary",
+        "displayName": "Status Waiting",
+        "canonical": "#7E8494",
+        "tonalRamp": [
+          "#0C0C0E",
+          "#23252A",
+          "#3C3F48",
+          "#585D6A",
+          "#747A8B",
+          "#989DA9",
+          "#BFC2CA",
+          "#EBECEF"
+        ]
+      },
+      "status-waiting-dark": {
+        "role": "secondary",
+        "displayName": "Status Waiting (dark)",
+        "canonical": "#8B919E",
+        "tonalRamp": [
+          "#0C0C0E",
+          "#23252A",
+          "#3C4048",
+          "#585E6A",
+          "#747B8B",
+          "#989EA9",
+          "#BFC2CA",
+          "#ECEDEF"
+        ]
+      },
+      "status-blocked": {
+        "role": "secondary",
+        "displayName": "Status Blocked",
+        "canonical": "#CE2F26",
+        "tonalRamp": [
+          "#160504",
+          "#410F0C",
+          "#701A15",
+          "#A4251E",
+          "#D73128",
+          "#E26760",
+          "#EDA09C",
+          "#F9E2E1"
+        ]
+      },
+      "status-blocked-dark": {
+        "role": "secondary",
+        "displayName": "Status Blocked (dark)",
+        "canonical": "#F2675D",
+        "tonalRamp": [
+          "#180302",
+          "#470A06",
+          "#7B110A",
+          "#B3190E",
+          "#EC2213",
+          "#F15B50",
+          "#F69992",
+          "#FCE0DE"
+        ]
+      },
+      "terrain-a": {
+        "role": "tertiary",
+        "displayName": "Terrain A",
+        "canonical": "#FFFFFF38",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "terrain-a-dark": {
+        "role": "tertiary",
+        "displayName": "Terrain A (dark)",
+        "canonical": "#FFFFFF0D",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "terrain-b": {
+        "role": "tertiary",
+        "displayName": "Terrain B",
+        "canonical": "#FFFFFF1F",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "terrain-b-dark": {
+        "role": "tertiary",
+        "displayName": "Terrain B (dark)",
+        "canonical": "#FFFFFF08",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      },
+      "float-shadow": {
+        "role": "neutral",
+        "displayName": "Float Shadow",
+        "canonical": "#1B2A4A26",
+        "tonalRamp": [
+          "#070B13",
+          "#142038",
+          "#233761",
+          "#34518E",
+          "#446ABB",
+          "#7591CD",
+          "#A9BAE0",
+          "#E5EAF5"
+        ]
+      },
+      "float-shadow-dark": {
+        "role": "neutral",
+        "displayName": "Float Shadow (dark)",
+        "canonical": "#00000073",
+        "tonalRamp": [
+          "#0D0D0D",
+          "#262626",
+          "#424242",
+          "#616161",
+          "#808080",
+          "#A1A1A1",
+          "#C4C4C4",
+          "#EDEDED"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "next-step": {
+        "displayName": "Next step",
+        "purpose": "The \"Next: ...\" line on the floating card, wide layouts only."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Classroom name, step name in the panel, phase names in the list."
+      },
+      "heading": {
+        "displayName": "Heading",
+        "purpose": "Phase strip names, step names on full cards, panel headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Descriptions and list rows."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Buttons, chips, sidebar items, section labels, map labels."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Dates, counts and gutter names, with tabular figures."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Change badges and avatar initials only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float-thin",
+        "value": "0 4px 12px #1B2A4A26",
+        "purpose": "Thin glass panes (light)."
+      },
+      {
+        "name": "float-regular",
+        "value": "0 6px 20px #1B2A4A26",
+        "purpose": "Bars, cards and sticky headers (light)."
+      },
+      {
+        "name": "float-thick",
+        "value": "0 10px 28px #1B2A4A26",
+        "purpose": "Step panel, sheet, filter panel and menus (light)."
+      },
+      {
+        "name": "float-regular-dark",
+        "value": "0 6px 20px #00000073",
+        "purpose": "Glass panes (dark); depth grows with weight as in light."
+      },
+      {
+        "name": "plate",
+        "value": "0 1.5px 0 #1B2A4A13, 0 4px 0 1px #1B2A4A13",
+        "purpose": "Unblurred offset shapes under steps and phase cards above scale 0.34."
+      }
+    ],
+    "motion": [
+      {
+        "name": "spring-camera-glide",
+        "value": "response 0.42s, damping ratio 1",
+        "purpose": "Camera moves to a view: pan and scale as independent springs."
+      },
+      {
+        "name": "spring-camera-release-pan",
+        "value": "response 0.5s, damping ratio 1",
+        "purpose": "Pan after a released gesture, aimed at the projected rest point."
+      },
+      {
+        "name": "spring-camera-release-scale",
+        "value": "response 0.38s, damping ratio 1",
+        "purpose": "Scale settling after a gesture."
+      },
+      {
+        "name": "spring-side-panel",
+        "value": "response 0.34s, damping ratio 1",
+        "purpose": "Step panel in and out from the right; reversible mid-flight."
+      },
+      {
+        "name": "spring-sheet",
+        "value": "response 0.32s, damping ratio 1, or 0.85 on a flick above 500px/s",
+        "purpose": "Bottom sheet settling to a detent."
+      },
+      {
+        "name": "spring-swipe-return",
+        "value": "response 0.3s, damping ratio 1",
+        "purpose": "Swipe-to-done thumb returning."
+      },
+      {
+        "name": "press",
+        "value": "scale 0.97, instant down, 160ms ease-out up",
+        "purpose": "Button press feedback."
+      },
+      {
+        "name": "focus-lift",
+        "value": "260ms",
+        "purpose": "Focus on me dimming other lanes."
+      },
+      {
+        "name": "completion",
+        "value": "900ms, sweep ease-out cubic",
+        "purpose": "Unlock sweep, ripple and unlocked ring."
+      },
+      {
+        "name": "menu-in",
+        "value": "180ms ease-out cubic, scale from 0.92",
+        "purpose": "Context menu entrance."
+      },
+      {
+        "name": "notice",
+        "value": "200ms ease-out cubic",
+        "purpose": "Notice swap."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "camera jumps; panels and sheets take 160ms",
+        "purpose": "When the system asks for reduced motion."
+      },
+      {
+        "name": "glass-materialize",
+        "value": "180ms ease-out, scale 0.92 to 1 with opacity",
+        "purpose": "Menus and the filter panel arriving."
+      },
+      {
+        "name": "tab-highlight",
+        "value": "240ms ease-out",
+        "purpose": "The highlight sliding between tabs."
+      },
+      {
+        "name": "ambient-theme",
+        "value": "320ms cross-fade",
+        "purpose": "The ambient ground easing between light and dark."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "gutter-slim",
+        "value": "500px"
+      },
+      {
+        "name": "canvas-minimap",
+        "value": "600px of clear canvas"
+      },
+      {
+        "name": "shell-narrow",
+        "value": "840px"
+      },
+      {
+        "name": "shell-short",
+        "value": "500px tall"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Prominent Button",
+      "kind": "button",
+      "refersTo": "button-prominent",
+      "description": "The single main action in a panel. Ink, never magenta.",
+      "html": "<button class=\"ds-btn-prominent\">Start step</button>",
+      "css": ".ds-btn-prominent{display:inline-flex;align-items:center;justify-content:center;padding:0 12px;border:2px solid transparent;border-radius:999px;cursor:pointer;transition:transform .16s ease-out,background .16s;font-family:Inter,sans-serif;font-size:13px;font-weight:500;line-height:1.25;height:44px;background:#1B1F27;color:#F2F5FA;} .ds-btn-prominent:active{transform:scale(.97);transition:none} .ds-btn-prominent:focus-visible{outline:none;border-color:#1A67AD}"
+    },
+    {
+      "name": "Standard Button",
+      "kind": "button",
+      "refersTo": "button-standard",
+      "description": "The resting button on Control, moving to Hairline on hover.",
+      "html": "<button class=\"ds-btn-standard\">Undo</button>",
+      "css": ".ds-btn-standard{display:inline-flex;align-items:center;justify-content:center;padding:0 12px;border:2px solid transparent;border-radius:999px;cursor:pointer;transition:transform .16s ease-out,background .16s;font-family:Inter,sans-serif;font-size:13px;font-weight:500;line-height:1.25;height:36px;background:rgba(28,39,68,.08);color:#1B1F27;} .ds-btn-standard:active{transform:scale(.97);transition:none} .ds-btn-standard:focus-visible{outline:none;border-color:#1A67AD} .ds-btn-standard:hover{background:rgba(28,39,68,.12)}"
+    },
+    {
+      "name": "Quiet Destructive Button",
+      "kind": "button",
+      "refersTo": "button-quiet-destructive",
+      "description": "Destructive actions are quiet, red-labelled, and kept apart by empty space.",
+      "html": "<button class=\"ds-btn-destructive\">Delete step</button>",
+      "css": ".ds-btn-destructive{display:inline-flex;align-items:center;justify-content:center;padding:0 12px;border:2px solid transparent;border-radius:999px;cursor:pointer;transition:transform .16s ease-out,background .16s;font-family:Inter,sans-serif;font-size:13px;font-weight:500;line-height:1.25;height:44px;background:transparent;color:#CE2F26;} .ds-btn-destructive:active{transform:scale(.97);transition:none} .ds-btn-destructive:focus-visible{outline:none;border-color:#1A67AD} .ds-btn-destructive:hover{background:rgba(28,39,68,.08)}"
+    },
+    {
+      "name": "Focus On Me Button",
+      "kind": "button",
+      "refersTo": "button-my-focus-active",
+      "description": "The one chrome control that turns magenta, because it is about the viewer.",
+      "html": "<button class=\"ds-btn-focus\" aria-pressed=\"true\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 17 17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\" aria-hidden=\"true\"><circle cx=\"8.5\" cy=\"8.5\" r=\"5.5\"/><path d=\"M8.5 1v3M8.5 13v3M1 8.5h3M13 8.5h3\"/></svg><span>Focus on me</span></button>",
+      "css": ".ds-btn-focus{display:inline-flex;align-items:center;justify-content:center;padding:0 12px;border:2px solid transparent;border-radius:999px;cursor:pointer;transition:transform .16s ease-out,background .16s;font-family:Inter,sans-serif;font-size:13px;font-weight:500;line-height:1.25;height:36px;gap:7px;background:#C2187A;color:#FFFFFF;} .ds-btn-focus:active{transform:scale(.97);transition:none} .ds-btn-focus:focus-visible{outline:none;border-color:#1A67AD}"
+    },
+    {
+      "name": "Filter Chips",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Compact toggles for filters and step owners; selected is an ink fill.",
+      "html": "<div class=\"ds-chips\"><button class=\"ds-chip ds-chip-on\" aria-pressed=\"true\">You</button><button class=\"ds-chip\" aria-pressed=\"false\">Asha</button><button class=\"ds-chip\" aria-pressed=\"false\">Overdue</button></div>",
+      "css": ".ds-chips{display:flex;gap:6px;flex-wrap:wrap} .ds-chip{display:inline-flex;align-items:center;justify-content:center;padding:0 12px;border:2px solid transparent;border-radius:999px;cursor:pointer;transition:transform .16s ease-out,background .16s;font-family:Inter,sans-serif;font-size:13px;font-weight:500;line-height:1.25;height:36px;background:rgba(28,39,68,.08);color:#1B1F27;} .ds-chip:active{transform:scale(.97);transition:none} .ds-chip:focus-visible{outline:none;border-color:#1A67AD} .ds-chip:hover{background:rgba(28,39,68,.12)} .ds-chip-on,.ds-chip-on:hover{background:#1B1F27;color:#F2F5FA}"
+    },
+    {
+      "name": "View Switcher",
+      "kind": "nav",
+      "refersTo": "",
+      "description": "Cupertino sliding segmented control for Flowspace, Timeline and List on wide layouts; a floating glass capsule of tabs on narrow.",
+      "html": "<nav class=\"ds-seg\" aria-label=\"Views\"><a class=\"ds-seg-item ds-seg-on\" href=\"#\" aria-current=\"true\">Flowspace</a><a class=\"ds-seg-item\" href=\"#\">Timeline</a><a class=\"ds-seg-item\" href=\"#\">List</a></nav>",
+      "css": ".ds-seg{display:inline-flex;width:264px;padding:2px;border-radius:999px;background:rgba(28,39,68,.08)} .ds-seg-item{flex:1;padding:6px 0;text-align:center;border-radius:7px;text-decoration:none;color:#1B1F27;font-family:Inter,sans-serif;font-size:13px;font-weight:500;line-height:1.25;} .ds-seg-item:hover{background:rgba(28,39,68,.12)} .ds-seg-item:focus-visible{outline:2px solid #1A67AD} .ds-seg-on,.ds-seg-on:hover{background:#FFFFFF}"
+    },
+    {
+      "name": "Next-Step Card",
+      "kind": "card",
+      "refersTo": "next-step-card",
+      "description": "Floating glass naming the viewer's next step and why it is next.",
+      "html": "<div class=\"ds-next\"><span class=\"ds-next-ring\"></span><div><div class=\"ds-next-title\">Next: Build event list</div><div class=\"ds-next-line\">\"Set up Firebase\" is done, so you can start. Due Thu 19 Nov.</div></div></div>",
+      "css": ".ds-next{display:flex;width:320px;padding:12px 14px 13px;border-radius:18px;background:linear-gradient(rgba(255,255,255,.72),rgba(255,255,255,.58));border:1px solid rgba(255,255,255,.6);border-top-color:rgba(255,255,255,.9);box-shadow:0 6px 20px #1B2A4A26;-webkit-backdrop-filter:blur(18px) saturate(1.5);backdrop-filter:blur(18px) saturate(1.5);cursor:pointer} .ds-next-ring{flex:none;width:20px;height:20px;margin:3px 10px 0 0;border:4px solid #C2187A;border-radius:50%;box-sizing:border-box} .ds-next-title{font-family:Inter,sans-serif;font-size:25px;font-weight:700;line-height:1.2;letter-spacing:-.6px;color:#1B1F27} .ds-next-line{margin-top:3px;font-family:Inter,sans-serif;font-size:13px;font-weight:500;line-height:1.25;color:#474E5C}"
+    },
+    {
+      "name": "Step Marks",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "Six statuses as drawn marks, readable with the colour removed.",
+      "html": "<ul class=\"ds-marks\"><li><svg width=\"18\" height=\"18\" viewBox=\"0 0 18 18\" aria-hidden=\"true\"><circle cx=\"9\" cy=\"9\" r=\"8\" fill=\"#F2F5FA\" stroke=\"#1B1F27\" stroke-width=\"1.76\"/></svg><span>Ready to start</span></li><li><svg width=\"18\" height=\"18\" viewBox=\"0 0 18 18\" aria-hidden=\"true\"><circle cx=\"9\" cy=\"9\" r=\"8\" fill=\"#F2F5FA\"/><path d=\"M9 1A8 8 0 0 1 9 17Z\" fill=\"#1A67AD\"/><circle cx=\"9\" cy=\"9\" r=\"8\" fill=\"none\" stroke=\"#1A67AD\" stroke-width=\"1.76\"/></svg><span>In progress</span></li><li><svg width=\"18\" height=\"18\" viewBox=\"0 0 18 18\" aria-hidden=\"true\"><circle cx=\"9\" cy=\"9\" r=\"8\" fill=\"#F2F5FA\" stroke=\"#1A67AD\" stroke-width=\"1.76\"/><circle cx=\"9\" cy=\"9\" r=\"4\" fill=\"#1A67AD\"/></svg><span>In review</span></li><li><svg width=\"18\" height=\"18\" viewBox=\"0 0 18 18\" aria-hidden=\"true\"><circle cx=\"9\" cy=\"9\" r=\"8\" fill=\"#1F7F4C\"/><path d=\"M5.6 9.2 8.2 11.7 12.7 6.4\" fill=\"none\" stroke=\"#F2F5FA\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg><span>Done</span></li><li><svg width=\"18\" height=\"18\" viewBox=\"0 0 18 18\" aria-hidden=\"true\"><circle cx=\"9\" cy=\"9\" r=\"8\" fill=\"#F2F5FA\" stroke=\"#7E8494\" stroke-width=\"1.2\"/><circle cx=\"9\" cy=\"9\" r=\"1.4\" fill=\"#7E8494\"/></svg><span>Waiting on another step</span></li><li><svg width=\"18\" height=\"18\" viewBox=\"0 0 18 18\" aria-hidden=\"true\"><circle cx=\"9\" cy=\"9\" r=\"8\" fill=\"#F2F5FA\" stroke=\"#CE2F26\" stroke-width=\"1.76\"/><line x1=\"3.6\" y1=\"3.6\" x2=\"14.4\" y2=\"14.4\" stroke=\"#CE2F26\" stroke-width=\"1.76\"/></svg><span>Blocked by an overdue step</span></li></ul>",
+      "css": ".ds-marks{list-style:none;margin:0;padding:0;display:grid;gap:8px} .ds-marks li{display:flex;align-items:center;gap:10px;font-family:Inter,sans-serif;font-size:13px;font-weight:500;line-height:1.25;color:#1B1F27}"
+    },
+    {
+      "name": "Overprinted Route",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "The signature: the viewer's course in magenta, with the next step ringed and finished stretches at 45%.",
+      "html": "<svg class=\"ds-route\" width=\"320\" height=\"64\" viewBox=\"0 0 320 64\" role=\"img\" aria-label=\"Route with a finished stretch and a ringed next step\"><rect width=\"160\" height=\"64\" fill=\"rgba(255,255,255,.22)\"/><rect x=\"160\" width=\"160\" height=\"64\" fill=\"rgba(255,255,255,.12)\"/><path d=\"M40 32H150\" stroke=\"#C2187A\" stroke-opacity=\".45\" stroke-width=\"3.6\" stroke-linecap=\"round\"/><path d=\"M150 32H280\" stroke=\"#C2187A\" stroke-width=\"3.6\" stroke-linecap=\"round\"/><circle cx=\"40\" cy=\"32\" r=\"14\" fill=\"rgba(255,255,255,.22)\" stroke=\"#C2187A\" stroke-width=\"3\"/><circle cx=\"40\" cy=\"32\" r=\"10\" fill=\"#1F7F4C\"/><path d=\"M36 32l3 3 5-6\" fill=\"none\" stroke=\"#F2F5FA\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"150\" cy=\"32\" r=\"20\" fill=\"rgba(255,255,255,.12)\" stroke=\"#C2187A\" stroke-width=\"4.5\"/><circle cx=\"150\" cy=\"32\" r=\"13\" fill=\"#F2F5FA\" stroke=\"#1B1F27\" stroke-width=\"2.8\"/><circle cx=\"280\" cy=\"32\" r=\"14\" fill=\"rgba(255,255,255,.12)\" stroke=\"#C2187A\" stroke-width=\"3\"/><circle cx=\"280\" cy=\"32\" r=\"10\" fill=\"#F2F5FA\" stroke=\"#7E8494\" stroke-width=\"1.2\"/><circle cx=\"280\" cy=\"32\" r=\"1.6\" fill=\"#7E8494\"/></svg>",
+      "css": ".ds-route{display:block;border-radius:12px}"
+    },
+    {
+      "name": "Phase Card With Thin Ring",
+      "kind": "card",
+      "refersTo": "phase-card",
+      "description": "Far-zoom phase card in drawn glass. The brief-earned ring is one thin ink on a track, a measure and not a reward.",
+      "html": "<div class=\"ds-phase\"><svg width=\"32\" height=\"32\" viewBox=\"0 0 32 32\" fill=\"none\" stroke-width=\"3\" aria-hidden=\"true\"><circle cx=\"16\" cy=\"16\" r=\"13\" stroke=\"rgba(28,39,68,.08)\"/><circle cx=\"16\" cy=\"16\" r=\"13\" stroke=\"#474E5C\" stroke-dasharray=\"16.3 81.7\" transform=\"rotate(-90 16 16)\"/></svg><div class=\"ds-phase-name\">Build</div><div class=\"ds-phase-count\">1 of 5 done</div></div>",
+      "css": ".ds-phase{width:150px;height:116px;box-sizing:border-box;padding:10px 12px;border-radius:16px;background:linear-gradient(rgba(255,255,255,.9),rgba(255,255,255,.72));border:3px solid #C2187A} .ds-phase-name{margin-top:8px;font-family:Inter,sans-serif;font-size:13px;font-weight:600;line-height:1.25;color:#1B1F27} .ds-phase-count{margin-top:3px;font-family:Inter,sans-serif;font-size:12px;font-weight:500;line-height:1.25;font-variant-numeric:tabular-nums;color:#474E5C}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Overprint Course",
+    "overview": "Octria draws a plan the way an orienteering map draws a course: a quiet printed base of terrain and other people, with one magenta line laid over the top that belongs to whoever is holding the map. The viewer's next step is the one thing on the sheet they cannot miss. Everything else stays legible and stays back.\n\nThe sheet is calm by default and dense on request. A still, soft-coloured ground, pale translucent bands per phase and hairline lane rules make up the base; quiet ink carries the team; status keeps the colours a map reader already knows. One continuous zoom takes the same sheet from phases, to step rectangles, to full inline cards, and content changes with scale so text never turns to clutter. The chrome around the sheet is Apple-style glass that floats over the map, so the only unfamiliar thing on screen is the map itself, and it earns that.\n\nSteps are rectangles, by the user's decision, because they hold the step's status, date and name in one readable place. What keeps the graph from being a generic board is the magenta route and the member lanes, not the shape of a step. It must not feel overwhelming at first, or gamified or childish.",
+    "keyCharacteristics": [
+      "One magenta overprint, reserved for the viewer's own route and own work.",
+      "Every status is a drawn mark first and a colour second.",
+      "A map running underneath floating glass, on a still ambient ground.",
+      "One continuous zoom axis, shared by drawing and hit testing.",
+      "Standard Cupertino controls, spring motion, feedback on the press.",
+      "One workhorse sans with tabular dates.",
+      "Full light and dark, following the system."
+    ],
+    "rules": [
+      {
+        "name": "The One Look Rule",
+        "body": "Binding decision by the product's owner: Octria wears one Apple-style look on every platform (Android, iOS, web, Windows, macOS, Linux), chosen over per-OS native chrome. There is no Material variant and no per-platform restyle. The look never overrides the platform's behaviour: Android Back and the system's settings for appearance, text size, reduced motion and contrast are always honoured.",
+        "section": "overview"
+      },
+      {
+        "section": "overview",
+        "name": "The Glass Rule",
+        "body": "Binding decision by the product's owner: the interface is Apple-style glass, with translucent chrome floating over a canvas that runs underneath it. This replaced the earlier opaque toolbar and the map's contour rings. Performance outranks the material: a device that can't keep up loses real blur, not smoothness."
+      },
+      {
+        "name": "The Overprint Rule",
+        "body": "Magenta means \"this is yours\". If a mark does not belong to the person looking at it, it cannot be magenta. Generic primary actions are ink, not magenta, and so is selection of someone else's step.",
+        "section": "colors"
+      },
+      {
+        "name": "The Map Colours Rule",
+        "body": "Green, blue, grey and red mean status, plus the few uses named above. They are never decoration, category colours or per-member identity.",
+        "section": "colors"
+      },
+      {
+        "name": "The Terrain Rule",
+        "body": "Terrain bands stay faint enough that all ink and status colours hold on top of them, and they mark phases only.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Workhorse Rule",
+        "body": "Inter is the only family. Emphasis comes from weight and from the colour of the ink, never a second face.",
+        "section": "typography"
+      },
+      {
+        "name": "The Set The Axis Rule",
+        "body": "Inter is a variable font: whenever weight changes, set the weight axis with it, or the real cut is not used.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Dates Rule",
+        "body": "Dates and counts use tabular figures so they line up down a list or timeline.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Zoom Axis Rule",
+        "body": "Scale runs continuously from 0.16 to 2.6, and every change of content is a function of scale, used for both drawing and hit testing. Phase cards fade out between 0.26 and 0.40. Arrowheads appear above 0.34, badges above 0.42, labels above 0.44, dates above 0.62 (always, for the next step), avatars above 0.72. Full step cards grow from marks between 1.2 and 1.55. The route is drawn at every scale. There are no discrete zoom modes.",
+        "section": "layout"
+      },
+      {
+        "name": "The Words On Top Rule",
+        "body": "A step's words sit inside its rectangle, drawn after every wire and rule, so no line ever runs across them. The rectangle stays at least 72% solid, so the route showing faintly behind it never costs legibility.",
+        "section": "layout"
+      },
+      {
+        "name": "The Solid When Asked Rule",
+        "body": "When the system asks for more contrast, glass goes solid: Raised at full strength, no blur, a full-ink edge, and no ambient glows.",
+        "section": "elevation"
+      },
+      {
+        "section": "elevation & depth",
+        "name": "The Glass Budget Rule",
+        "body": "If over a third of 120 frames take more than 22ms to draw, panes drop real blur for the rest of the session and thicken to stay readable. Nothing else changes."
+      },
+      {
+        "section": "elevation & depth",
+        "name": "The One Pane Rule",
+        "body": "Never place a light translucent surface over another for reading. Thick panes cover what's beneath them; a sheet covers the tab bar rather than sliding under it."
+      },
+      {
+        "name": "The Drawn Mark Rule",
+        "body": "Every status is a drawn mark before it is a colour. Remove the colour and the status must still be readable; any new surface that shows status uses these marks.",
+        "section": "components"
+      },
+      {
+        "name": "The Thin Ring Exception",
+        "body": "Brief-earned, not a licence: the product's plan calls for phases as large cards with a progress ring each. The ring is a 3px stroke of 13px radius, one Soft Ink arc on a Control track, with plain butt ends and no magenta, green or animation. It is a quiet measure of progress, not a reward, and it appears only on phase cards.",
+        "section": "components"
+      },
+      {
+        "name": "The Kept Apart Rule",
+        "body": "Destructive actions are isolated by empty space: Delete step sits 56px below the panel's last section, with nothing common near it.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do build chrome from the Cupertino set and the shared press button, on every platform, per the One Look Rule.",
+      "Do honour Android Back and the system's appearance, text size, reduced motion and contrast settings on every new surface.",
+      "Do draw status with the six step marks, and name any new map mark or line in the map key.",
+      "Do rest steps as marks, and let cards arrive through zoom along the one continuous axis.",
+      "Do make the most important action ink, and keep magenta for what belongs to the viewer.",
+      "Do give every new colour both a light and a dark value, and check it on glass over each ambient glow.",
+      "Do run content under floating bars, with scroll padding to clear them, rather than reserving a strip for them.",
+      "Do make touch targets at least 44px, and hit areas larger than the drawn mark (28px reach on touch, 22px with a mouse).",
+      "Do land feedback on the press, and use springs that can be interrupted.",
+      "Do keep destructive actions apart by 56px of empty space and offer Undo in a notice."
+    ],
+    "donts": [
+      "Don't use magenta for anyone else's work, for decoration, for links, or as a general primary colour.",
+      "Don't carry a status by colour alone on any new surface.",
+      "Don't make cards the resting form of a step, or let the graph settle into a board of rounded cards and connectors.",
+      "Don't use Material widgets, ship a per-OS restyle, or let the Apple-style look override Android Back or a system setting.",
+      "Don't add points, streaks, levels, confetti or other rewards; completion feedback stays the one sweep and ripple on the map.",
+      "Don't give the progress ring a second ink or a place outside phase cards.",
+      "Don't use real blur on anything drawn per step; canvas glass is faked for speed.",
+      "Don't stack one translucent pane on another for reading, or animate the ambient ground.",
+      "Don't add a blurred surface without its solid high-contrast form.",
+      "Don't add a second typeface, or change Inter's weight without setting its weight axis.",
+      "Don't let a wire run across words.",
+      "Don't place a common action beside a destructive one."
+    ]
+  }
+}
