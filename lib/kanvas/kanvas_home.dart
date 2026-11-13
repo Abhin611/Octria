@@ -8,9 +8,11 @@ import '../data/overview.dart';
 import '../model/plan.dart';
 import '../screens/classroom_forms.dart';
 import '../theme/tokens.dart';
+import '../widgets/wide_page.dart';
 import '../widgets/controls.dart';
 import '../widgets/glass_motion.dart';
 import '../widgets/motion.dart';
+import '../ofy/ofy.dart';
 import 'kanvas_model.dart';
 import 'kanvas_painter.dart';
 import 'kanvas_screen.dart';
@@ -302,166 +304,158 @@ class _KanvasHomeState extends State<KanvasHome> {
                   (query.isEmpty || b.searchText.contains(query)))
                 b,
           ];
-          return Padding(
-            padding: EdgeInsets.only(left: insets.left, right: insets.right),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1040),
-                child: CustomScrollView(
-                  slivers: [
-                    SliverPadding(
-                      padding: EdgeInsets.only(top: insets.top),
-                      sliver: SliverToBoxAdapter(
-                        child: Rise(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 8, 4, 16),
-                            child: Row(
+          return WidePage(
+            insets: insets,
+            maxWidth: 1040,
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.only(top: insets.top),
+                sliver: SliverToBoxAdapter(
+                  child: Rise(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(4, 8, 4, 16),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: p.accentWarm.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: Icon(
+                              CupertinoIcons.paintbrush,
+                              color: p.accentWarm,
+                              size: 23,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Container(
-                                  width: 42,
-                                  height: 42,
-                                  decoration: BoxDecoration(
-                                    color: p.accentWarm.withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(13),
-                                  ),
-                                  child: Icon(
-                                    CupertinoIcons.paintbrush,
-                                    color: p.accentWarm,
-                                    size: 23,
+                                Semantics(
+                                  header: true,
+                                  child: Text(
+                                    'Kanvas',
+                                    style: TypeRamp.title(
+                                      p.ink,
+                                    ).copyWith(fontSize: 30, letterSpacing: -1),
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Semantics(
-                                        header: true,
-                                        child: Text(
-                                          'Kanvas',
-                                          style: TypeRamp.title(p.ink).copyWith(
-                                            fontSize: 30,
-                                            letterSpacing: -1,
-                                          ),
-                                        ),
-                                      ),
-                                      Text(
-                                        'Your own boards for ideas, notes and '
-                                        'diagrams. Private until you share.',
-                                        style: TypeRamp.body(p.inkSoft),
-                                      ),
-                                    ],
-                                  ),
+                                Text(
+                                  'Your own boards for ideas, notes and '
+                                  'diagrams. Private until you share.',
+                                  style: TypeRamp.body(p.inkSoft),
                                 ),
                               ],
                             ),
                           ),
-                        ),
+                        ],
                       ),
                     ),
-                    SliverToBoxAdapter(
-                      child: Rise(
-                        index: 1,
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: GlassField(
-                                label: 'Search boards and what’s on them',
-                                controller: _search,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            PressButton(
-                              label: 'New board',
-                              icon: CupertinoIcons.plus,
-                              prominent: true,
-                              height: 48,
-                              onTap: _new,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 12, bottom: 12),
-                        child: Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            SelectChip(
-                              label: 'All my boards',
-                              selected: _folder == '',
-                              onTap: () => setState(() => _folder = ''),
-                            ),
-                            for (final f in folders)
-                              SelectChip(
-                                label: f,
-                                selected: _folder == f,
-                                onTap: () => setState(() => _folder = f),
-                              ),
-                            SelectChip(
-                              label: others.isEmpty
-                                  ? 'Shared with me'
-                                  : 'Shared with me · ${others.length}',
-                              selected: _folder == null,
-                              onTap: () => setState(() => _folder = null),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (mine.hasData && shown.isEmpty)
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 40),
-                          child: Text(
-                            _folder == null
-                                ? 'Nobody has shared a board with you yet.'
-                                : (query.isNotEmpty
-                                      ? 'No board matches “$query”.'
-                                      : 'No boards here yet. Start one for '
-                                            'an idea, a plan or a sketch.'),
-                            textAlign: TextAlign.center,
-                            style: TypeRamp.body(p.inkSoft),
-                          ),
-                        ),
-                      )
-                    else
-                      SliverGrid(
-                        gridDelegate:
-                            const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 260,
-                              mainAxisSpacing: 12,
-                              crossAxisSpacing: 12,
-                              childAspectRatio: 0.95,
-                            ),
-                        delegate: SliverChildBuilderDelegate(
-                          childCount: shown.length,
-                          (context, i) => Rise(
-                            index: 3 + i,
-                            child: _BoardCard(
-                              board: shown[i],
-                              mine:
-                                  shown[i].ownerUid ==
-                                  widget.backend.currentUser?.uid,
-                              onOpen: () => _open(shown[i]),
-                              onMore:
-                                  shown[i].ownerUid ==
-                                      widget.backend.currentUser?.uid
-                                  ? () => _actions(shown[i], folders)
-                                  : null,
-                            ),
-                          ),
-                        ),
-                      ),
-                    SliverToBoxAdapter(child: SizedBox(height: insets.bottom)),
-                  ],
+                  ),
                 ),
               ),
-            ),
+              SliverToBoxAdapter(
+                child: Rise(
+                  index: 1,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GlassField(
+                          label: 'Search boards and what’s on them',
+                          controller: _search,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OfyTarget(
+                        id: 'kanvas:new',
+                        child: PressButton(
+                          label: 'New board',
+                          icon: CupertinoIcons.plus,
+                          prominent: true,
+                          height: 48,
+                          onTap: _new,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 12, bottom: 12),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      SelectChip(
+                        label: 'All my boards',
+                        selected: _folder == '',
+                        onTap: () => setState(() => _folder = ''),
+                      ),
+                      for (final f in folders)
+                        SelectChip(
+                          label: f,
+                          selected: _folder == f,
+                          onTap: () => setState(() => _folder = f),
+                        ),
+                      SelectChip(
+                        label: others.isEmpty
+                            ? 'Shared with me'
+                            : 'Shared with me · ${others.length}',
+                        selected: _folder == null,
+                        onTap: () => setState(() => _folder = null),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (mine.hasData && shown.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Text(
+                      _folder == null
+                          ? 'Nobody has shared a board with you yet.'
+                          : (query.isNotEmpty
+                                ? 'No board matches “$query”.'
+                                : 'No boards here yet. Start one for '
+                                      'an idea, a plan or a sketch.'),
+                      textAlign: TextAlign.center,
+                      style: TypeRamp.body(p.inkSoft),
+                    ),
+                  ),
+                )
+              else
+                SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 260,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.95,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    childCount: shown.length,
+                    (context, i) => Rise(
+                      index: 3 + i,
+                      child: _BoardCard(
+                        board: shown[i],
+                        mine:
+                            shown[i].ownerUid ==
+                            widget.backend.currentUser?.uid,
+                        onOpen: () => _open(shown[i]),
+                        onMore:
+                            shown[i].ownerUid == widget.backend.currentUser?.uid
+                            ? () => _actions(shown[i], folders)
+                            : null,
+                      ),
+                    ),
+                  ),
+                ),
+              SliverToBoxAdapter(child: SizedBox(height: insets.bottom)),
+            ],
           );
         },
       ),

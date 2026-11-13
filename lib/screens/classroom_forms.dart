@@ -11,6 +11,8 @@ import '../widgets/controls.dart';
 import '../widgets/glass_menu.dart';
 import '../widgets/glass_motion.dart';
 import 'profile_stats.dart';
+import '../ai/split.dart';
+import 'skills_sheets.dart';
 
 /// Opens a form as a sheet of thick glass: rising from the bottom on a phone,
 /// centred on anything wider.
@@ -216,8 +218,9 @@ Widget _label(BuildContext context, String text) => Padding(
 );
 
 /// A date shown as a button, opening a wheel beneath it.
-class _DateField extends StatefulWidget {
-  const _DateField({
+class GlassDateField extends StatefulWidget {
+  const GlassDateField({
+    super.key,
     required this.label,
     required this.value,
     required this.onChanged,
@@ -230,10 +233,10 @@ class _DateField extends StatefulWidget {
   final VoidCallback? onClear;
 
   @override
-  State<_DateField> createState() => _DateFieldState();
+  State<GlassDateField> createState() => _GlassDateFieldState();
 }
 
-class _DateFieldState extends State<_DateField> {
+class _GlassDateFieldState extends State<GlassDateField> {
   var _open = false;
 
   @override
@@ -301,11 +304,11 @@ class CreateClassroomSheet extends StatefulWidget {
 class _CreateClassroomSheetState extends State<CreateClassroomSheet> {
   final _title = TextEditingController();
   final _description = TextEditingController();
-  final _hours = TextEditingController();
-  final _constraints = TextEditingController();
   var _type = TaskType.build;
   var _individual = false;
-  DateTime? _deadline;
+
+  /// For a group: whether its people learn parts and teach each other.
+  var _linked = false;
   String? _message;
   var _busy = false;
 
@@ -313,8 +316,6 @@ class _CreateClassroomSheetState extends State<CreateClassroomSheet> {
   void dispose() {
     _title.dispose();
     _description.dispose();
-    _hours.dispose();
-    _constraints.dispose();
     super.dispose();
   }
 
@@ -328,11 +329,9 @@ class _CreateClassroomSheetState extends State<CreateClassroomSheet> {
       final id = await widget.backend.createClassroom(
         title: _title.text,
         description: _description.text,
-        constraints: _constraints.text,
         taskType: _type,
         individual: _individual,
-        deadline: _deadline,
-        hoursPerWeek: double.tryParse(_hours.text.trim()),
+        linked: !_individual && _linked,
       );
       if (mounted) Navigator.of(context).pop(id);
     } on BackendFailure catch (e) {
@@ -358,7 +357,7 @@ class _CreateClassroomSheetState extends State<CreateClassroomSheet> {
         onTap: _busy ? null : _submit,
       ),
       children: [
-        GlassField(label: 'What do you need to finish?', controller: _title),
+        GlassField(label: 'Classroom name', controller: _title),
         const SizedBox(height: 10),
         GlassField(
           label: 'Details (optional)',
@@ -394,21 +393,45 @@ class _CreateClassroomSheetState extends State<CreateClassroomSheet> {
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        _DateField(
-          label: 'Deadline',
-          value: _deadline,
-          onChanged: (d) => setState(() => _deadline = d),
-          onClear: () => setState(() => _deadline = null),
+        if (!_individual) ...[
+          _label(context, 'Does the group work together?'),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              SelectChip(
+                label: 'Yes, we learn parts and teach each other',
+                selected: _linked,
+                onTap: () => setState(() => _linked = true),
+              ),
+              SelectChip(
+                label: 'No, each does their own part',
+                selected: !_linked,
+                onTap: () => setState(() => _linked = false),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+            child: Text(
+              _linked
+                  ? 'Like a study group: Ofy splits the work evenly and adds '
+                        'sessions where you teach each other your parts.'
+                  : 'Like a team with roles: Ofy gives each person the steps '
+                        'that fit their role. One person’s work doesn’t wait on '
+                        'the others unless a step needs it.',
+              style: TypeRamp.caption(Palette.of(context).inkSoft),
+            ),
+          ),
+        ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 14, 4, 0),
+          child: Text(
+            'The deadline, your hours and anything the plan must respect are '
+            'asked when Ofy drafts the plan.',
+            style: TypeRamp.caption(Palette.of(context).inkFaint),
+          ),
         ),
-        const SizedBox(height: 10),
-        GlassField(
-          label: 'Hours per week (optional)',
-          controller: _hours,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        ),
-        const SizedBox(height: 10),
-        _ConstraintField(controller: _constraints),
       ],
     );
   }
@@ -554,13 +577,30 @@ class _ProfileSheetState extends State<ProfileSheet> {
   late final _bio = TextEditingController(
     text: widget.backend.currentUser?.bio,
   );
+  late final _skills = TextEditingController(
+    text: (widget.backend.currentUser?.skills ?? const <String>[]).join(', '),
+  );
   String? _message;
 
   @override
   void dispose() {
     _name.dispose();
     _bio.dispose();
+    _skills.dispose();
     super.dispose();
+  }
+
+  /// Ofy reads a resume and the skills kept join the ones typed here.
+  Future<void> _fromResume() async {
+    final found = await showGlassSheet<List<String>>(
+      context,
+      (_) => ResumeSkillsSheet(backend: widget.backend),
+    );
+    if (found == null || found.isEmpty || !mounted) return;
+    setState(() {
+      _skills.text = cleanSkills([...skillsFromText(_skills.text), ...found])
+          .join(', ');
+    });
   }
 
   Future<void> _save() async {
@@ -569,7 +609,11 @@ class _ProfileSheetState extends State<ProfileSheet> {
       return;
     }
     try {
-      await widget.backend.saveProfile(name: _name.text, bio: _bio.text);
+      await widget.backend.saveProfile(
+        name: _name.text,
+        bio: _bio.text,
+        skills: skillsFromText(_skills.text),
+      );
       if (mounted) Navigator.of(context).pop();
     } on BackendFailure catch (e) {
       if (mounted) setState(() => _message = e.message);
@@ -623,6 +667,28 @@ class _ProfileSheetState extends State<ProfileSheet> {
         GlassField(label: 'Name', controller: _name),
         const SizedBox(height: 10),
         GlassField(label: 'About you', controller: _bio, maxLines: 3),
+        const SizedBox(height: 10),
+        GlassField(
+          label: 'Skills, with commas between',
+          controller: _skills,
+          maxLines: 3,
+          textCapitalization: TextCapitalization.none,
+        ),
+        const SizedBox(height: 6),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: PressButton(
+            label: 'Read them from a resume',
+            icon: CupertinoIcons.sparkles,
+            quiet: true,
+            onTap: () => unawaited(_fromResume()),
+          ),
+        ),
+        Text(
+          'For example: Flutter, design, public speaking. People in your '
+          'classrooms can see these, and Ofy uses them to share work out.',
+          style: TypeRamp.caption(p.inkFaint),
+        ),
         const SizedBox(height: 18),
         PressButton(
           label: 'Sign out',
@@ -763,7 +829,7 @@ class _ClassroomSettingsSheetState extends State<ClassroomSettingsSheet> {
         const SizedBox(height: 10),
         GlassField(label: 'Details', controller: _description, maxLines: 3),
         const SizedBox(height: 10),
-        _DateField(
+        GlassDateField(
           label: 'Deadline',
           value: _deadline,
           onChanged: (d) => setState(() => _deadline = d),
@@ -1483,7 +1549,7 @@ class _StepEditorSheetState extends State<StepEditorSheet> {
           ),
         ],
         const SizedBox(height: 14),
-        _DateField(
+        GlassDateField(
           label: 'Due',
           value: _due,
           onChanged: (d) => setState(() => _due = DateUtils.dateOnly(d)),

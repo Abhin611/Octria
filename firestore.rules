@@ -39,6 +39,14 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
     }
 
+    // A list where the only change is the person's own name, added or taken out.
+    function onlyMine(before, after) {
+      let added = after.toSet().difference(before.toSet());
+      let removed = before.toSet().difference(after.toSet());
+      return (added == [me()].toSet() && removed.size() == 0) ||
+        (removed == [me()].toSet() && added.size() == 0);
+    }
+
     match /users/{uid} {
       allow read: if signedIn();
       allow write: if signedIn() && me() == uid;
@@ -248,7 +256,23 @@ service cloud.firestore {
           request.resource.data.ownerUid == me());
 
         allow update: if (isManager(cid) || ownStepUpdate(cid) || unlinksDeletedStep(cid) ||
-          receivesHandover(cid)) && descriptionByOwner();
+          receivesHandover(cid) || marksOwnPart(cid)) && descriptionByOwner();
+
+        // A test or check point: each person in it marks only their own part,
+        // and it's done once everyone has.
+        function marksOwnPart(cid) {
+          let after = request.resource.data;
+          let people = resource.data.get('participants', []);
+          let before = resource.data.get('doneBy', []);
+          return isMember(cid) && me() in people &&
+            changedOnly(['doneBy', 'status', 'ticks']) &&
+            (after.get('doneBy', []) == before || onlyMine(before, after.doneBy)) &&
+            // Only their own ticks on their own checklist.
+            after.get('ticks', {}).diff(resource.data.get('ticks', {}))
+              .affectedKeys().hasOnly([me()]) &&
+            after.status == (after.doneBy.toSet().hasAll(people) ? 'done'
+              : (after.doneBy.size() > 0 ? 'doing' : 'todo'));
+        }
 
         // Taking on a step someone asked to hand you, once it's your turn.
         function receivesHandover(cid) {
@@ -364,7 +388,10 @@ service cloud.firestore {
             d.mimeType is string && d.mimeType.size() <= 200 &&
             d.size is int && d.size >= 0 && d.size <= 26214400 &&
             d.url is string && d.url.size() <= 2000 &&
-            d.url.matches('https://(drive|docs)[.]google[.]com/.+') &&
+            // A Drive file, or a web page or PDF Ofy found, kept as a link.
+            (d.url.matches('https://(drive|docs)[.]google[.]com/.+') ||
+              (d.mimeType == 'text/html' && d.size == 0 &&
+                d.url.matches('https://[^ ]+'))) &&
             d.stepId is string && d.stepId.size() <= 200 &&
             d.shared is bool;
         }
@@ -442,10 +469,13 @@ service cloud.firestore {
             request.resource.data.participants[0] < request.resource.data.participants[1] &&
             tid == 'dm_' + request.resource.data.participants[0] + '_' + request.resource.data.participants[1]));
         allow update: if isMember(cid) &&
-          me() in resource.data.participants &&
+          me() in resource.data.participants && ((
           changedOnly(['lastAt', 'lastText', 'lastBy', 'readAt']) &&
           request.resource.data.readAt.diff(resource.data.readAt).affectedKeys().hasOnly([me()]) &&
-          (request.resource.data.lastBy == resource.data.lastBy || request.resource.data.lastBy == me());
+          (request.resource.data.lastBy == resource.data.lastBy || request.resource.data.lastBy == me())) ||
+          // Deleting it from your own lists, or bringing it back.
+          (changedOnly(['hiddenBy']) &&
+            onlyMine(resource.data.get('hiddenBy', []), request.resource.data.hiddenBy)));
 
         match /messages/{mid} {
           allow read: if isMember(cid) &&
@@ -534,6 +564,19 @@ service cloud.firestore {
         allow delete: if isMember(cid) && resource.data.fromUid == me();
       }
 
+      // Deleted steps and phases, kept so they can be brought back. Bringing
+      // one back goes through the steps' and phases' own rules.
+      match /trash/{id} {
+        allow read: if isMember(cid);
+        allow create: if isMember(cid) &&
+          request.resource.data.deletedBy == me() &&
+          (request.resource.data.kind == 'step' ||
+            (request.resource.data.kind == 'phase' && isManager(cid)));
+        allow update: if false;
+        allow delete: if isMember(cid) &&
+          (resource.data.deletedBy == me() || isManager(cid));
+      }
+
       // Written once, by the person it says did it. Nobody can change an entry,
       // and only the master can delete one.
       match /activity/{id} {
@@ -549,6 +592,47 @@ service cloud.firestore {
     // Notes for one person, such as a reply in a private thread. Only they can
     // read or clear their inbox, and only someone in a classroom with them can
     // leave one, under their own name.
+    // How many times someone asked Ofy today: their fair share of the free
+    // tier. It only ever goes up by one, to at most 40 a day.
+    match /users/{uid}/aiUsage/{day} {
+      allow read: if signedIn() && me() == uid;
+      allow create: if signedIn() && me() == uid &&
+        request.resource.data.keys().hasOnly(['count', 'day']) &&
+        request.resource.data.day == day &&
+        request.resource.data.count == 1;
+      allow update: if signedIn() && me() == uid &&
+        request.resource.data.keys().hasOnly(['count', 'day']) &&
+        request.resource.data.day == day &&
+        request.resource.data.count == resource.data.count + 1 &&
+        request.resource.data.count <= 40;
+      allow delete: if false;
+    }
+
+    // Someone's own practice and mock test results. Only they see them, and a
+    // result can't be changed after it's saved.
+    match /users/{uid}/results/{id} {
+      allow read, delete: if signedIn() && me() == uid;
+      allow update: if false;
+      allow create: if signedIn() && me() == uid &&
+        request.resource.data.keys().hasOnly(['classroomId', 'label', 'targetId', 'right', 'total', 'mock', 'missed', 'at', 'level', 'interview']) &&
+        (!('level' in request.resource.data) || request.resource.data.level in ['', 'easy', 'hard']) &&
+        (!('interview' in request.resource.data) || request.resource.data.interview is bool) &&
+        request.resource.data.classroomId is string &&
+        request.resource.data.label is string &&
+        request.resource.data.label.size() <= 200 &&
+        request.resource.data.targetId is string &&
+        request.resource.data.right is int &&
+        request.resource.data.total is int &&
+        request.resource.data.total > 0 &&
+        request.resource.data.total <= 50 &&
+        request.resource.data.right >= 0 &&
+        request.resource.data.right <= request.resource.data.total &&
+        request.resource.data.mock is bool &&
+        request.resource.data.missed is list &&
+        request.resource.data.missed.size() <= 20 &&
+        request.resource.data.at is timestamp;
+    }
+
     match /users/{uid}/inbox/{id} {
       allow read, delete: if signedIn() && me() == uid;
       allow update: if false;

@@ -111,11 +111,19 @@ class GlassPanel extends StatelessWidget {
         return DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: shape,
+            // A tight shadow where the pane meets what's under it, and a
+            // wide soft one for how far it floats.
             boxShadow: [
               BoxShadow(
-                color: p.shadow,
-                blurRadius: blur,
-                offset: Offset(0, drop),
+                color: p.shadow.withValues(alpha: p.shadow.a * 0.45),
+                blurRadius: 3,
+                offset: const Offset(0, 1),
+              ),
+              BoxShadow(
+                color: p.shadow.withValues(alpha: p.shadow.a * 0.8),
+                blurRadius: blur * 1.5,
+                spreadRadius: -2,
+                offset: Offset(0, drop * 1.4),
               ),
             ],
           ),
@@ -160,10 +168,24 @@ class _GlassBodyPainter extends CustomPainter {
       Paint()
         ..shader = ui.Gradient.linear(
           rect.topCenter,
-          Offset(0, size.height * 0.6),
+          Offset(0, math.min(size.height * 0.6, 220)),
           [light, light.withValues(alpha: 0)],
         ),
     );
+    // Light pooling in the top-left corner, as on a curved pane.
+    final reach = math.min(size.longestSide * 0.7, 420.0);
+    canvas.save();
+    canvas.clipRRect(shape);
+    canvas.drawCircle(
+      rect.topLeft,
+      reach,
+      Paint()
+        ..shader = ui.Gradient.radial(rect.topLeft, reach, [
+          light.withValues(alpha: light.a * 0.9),
+          light.withValues(alpha: 0),
+        ]),
+    );
+    canvas.restore();
   }
 
   @override
@@ -304,6 +326,8 @@ class _AmbientBackdropState extends State<AmbientBackdrop>
             child: CustomPaint(painter: _AmbientPainter(p, plain)),
           ),
           if (!plain)
+            RepaintBoundary(child: CustomPaint(painter: _HudPainter(p, _time))),
+          if (!plain)
             RepaintBoundary(
               child: CustomPaint(painter: _GlobePainter(p, _time)),
             ),
@@ -358,6 +382,147 @@ class _AmbientPainter extends CustomPainter {
   bool shouldRepaint(_AmbientPainter old) => old.p != p || old.plain != plain;
 }
 
+/// The rest of the screen, so no corner sits still: points of light drifting
+/// and linking up when near each other, and a slow dial turning in each
+/// corner, like instruments around the globe. Every motion loops once a turn
+/// of the globe, so nothing jumps when it starts again.
+class _HudPainter extends CustomPainter {
+  _HudPainter(this.p, this.time) : super(repaint: time);
+
+  final Palette p;
+  final ValueListenable<double> time;
+
+  static final List<(double, double, int, int, double)> _points = () {
+    final random = math.Random(7);
+    int speed() {
+      final s = random.nextInt(5) - 2;
+      return s == 0 ? 1 : s;
+    }
+
+    return [
+      for (var i = 0; i < 46; i++)
+        (
+          random.nextDouble(),
+          random.nextDouble(),
+          speed(),
+          speed(),
+          0.9 + random.nextDouble() * 1.8,
+        ),
+    ];
+  }();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // With no room yet, such as a window still opening, every distance is
+    // nothing over nothing: there's nothing to draw.
+    if (size.shortestSide < 1) return;
+    final t = time.value;
+    final dark = p.brightness == Brightness.dark;
+    final full = math.pi * 2;
+    final colour = p.orb;
+    final strength = dark ? 0.8 : 0.6;
+
+    // Drifting points, linked when close.
+    final at = [
+      for (final (x, y, sx, sy, r) in _points)
+        (
+          Offset(
+            ((x + t * sx) % 1) * size.width,
+            ((y + t * sy * 0.6) % 1) * size.height,
+          ),
+          r,
+        ),
+    ];
+    final reach = size.shortestSide * 0.16;
+    final link = Paint()..strokeWidth = 0.7;
+    for (var i = 0; i < at.length; i++) {
+      for (var j = i + 1; j < at.length; j++) {
+        final d = (at[i].$1 - at[j].$1).distance;
+        if (d > reach) continue;
+        link.color = colour.withValues(
+          alpha: strength * 0.35 * (1 - d / reach),
+        );
+        canvas.drawLine(at[i].$1, at[j].$1, link);
+      }
+    }
+    final dot = Paint();
+    for (final (o, r) in at) {
+      dot.color = colour.withValues(alpha: strength * 0.75);
+      canvas.drawCircle(o, r, dot);
+    }
+
+    // A dial in each corner: a broken ring with ticks, turning slowly.
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final radius = (size.shortestSide * 0.2).clamp(70.0, 190.0);
+    final corners = [
+      (Offset.zero, 1.0),
+      (Offset(size.width, 0), -1.0),
+      (Offset(0, size.height), -1.0),
+      (Offset(size.width, size.height), 1.0),
+    ];
+    for (final (corner, way) in corners) {
+      final spin = way * t * full * 2;
+      ring
+        ..strokeWidth = 1.1
+        ..color = colour.withValues(alpha: strength * 0.55);
+      final outer = Rect.fromCircle(center: corner, radius: radius);
+      for (var k = 0; k < 3; k++) {
+        canvas.drawArc(outer, spin + k * full / 3, full / 5, false, ring);
+      }
+      ring
+        ..strokeWidth = 0.8
+        ..color = colour.withValues(alpha: strength * 0.35);
+      final inner = Rect.fromCircle(center: corner, radius: radius * 0.72);
+      for (var k = 0; k < 4; k++) {
+        canvas.drawArc(
+          inner,
+          -spin * 1.5 + k * full / 4,
+          full / 9,
+          false,
+          ring,
+        );
+      }
+      // Ticks round the outside.
+      final tick = Paint()
+        ..strokeWidth = 1
+        ..color = colour.withValues(alpha: strength * 0.4);
+      for (var k = 0; k < 36; k++) {
+        final a = spin * 0.5 + k * full / 36;
+        final long = k % 3 == 0 ? 9.0 : 4.0;
+        final from = corner + Offset(math.cos(a), math.sin(a)) * (radius + 6);
+        final to =
+            corner + Offset(math.cos(a), math.sin(a)) * (radius + 6 + long);
+        canvas.drawLine(from, to, tick);
+      }
+      // A sweep, like a scanner, crossing the dial.
+      final sweep = way * t * full * 4;
+      canvas.drawArc(
+        Rect.fromCircle(center: corner, radius: radius * 0.95),
+        sweep,
+        0.5,
+        true,
+        Paint()
+          ..shader = ui.Gradient.sweep(
+            corner,
+            [
+              colour.withValues(alpha: 0),
+              colour.withValues(alpha: strength * 0.18),
+            ],
+            [0, 1],
+            TileMode.clamp,
+            sweep,
+            sweep + 0.5,
+          ),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HudPainter old) => old.p != p;
+}
+
 /// A globe of fine orange lines with a soft light inside it, turning slowly.
 class _GlobePainter extends CustomPainter {
   _GlobePainter(this.p, this.time) : super(repaint: time);
@@ -384,8 +549,8 @@ class _GlobePainter extends CustomPainter {
           centre,
           lightReach,
           [
-            p.orb.withValues(alpha: (dark ? 0.15 : 0.30) + 0.06 * breath),
-            p.orb.withValues(alpha: dark ? 0.05 : 0.12),
+            p.orb.withValues(alpha: (dark ? 0.15 : 0.22) + 0.06 * breath),
+            p.orb.withValues(alpha: dark ? 0.05 : 0.09),
             p.orb.withValues(alpha: 0),
           ],
           [0, 0.45, 1],
@@ -397,14 +562,14 @@ class _GlobePainter extends CustomPainter {
       ..strokeWidth = dark ? 1 : 1.3;
     // In light the globe shines in full orange, with a soft glow round every
     // line, so it reads as strongly on white as it does on black.
-    final strength = dark ? 0.22 : 0.8;
+    final strength = dark ? 0.22 : 0.42;
     final glow = Paint()
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
     void shine(void Function(Paint paint) draw, Paint core) {
       if (!dark) {
         glow
-          ..color = core.color.withValues(alpha: core.color.a * 0.22)
+          ..color = core.color.withValues(alpha: core.color.a * 0.14)
           ..strokeWidth = core.strokeWidth + 4;
         draw(glow);
       }
@@ -587,9 +752,13 @@ class _PressButtonState extends State<PressButton> {
           onTap: enabled ? _activate : null,
           child: AnimatedScale(
             scale: _down ? 0.97 : 1,
-            duration: _down ? Duration.zero : const Duration(milliseconds: 160),
-            curve: Curves.easeOut,
-            child: Container(
+            duration: _down ? Duration.zero : Motion.press,
+            curve: Motion.out,
+            child: AnimatedContainer(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 140),
+              curve: Curves.ease,
               height: height,
               width: widget.iconOnly ? height : null,
               padding: widget.iconOnly
@@ -677,6 +846,7 @@ class GlassField extends StatelessWidget {
     this.obscureText = false,
     this.keyboardType,
     this.maxLines = 1,
+    this.minLines = 1,
     this.autofillHints,
     this.textCapitalization = TextCapitalization.sentences,
     this.onSubmitted,
@@ -687,6 +857,7 @@ class GlassField extends StatelessWidget {
   final bool obscureText;
   final TextInputType? keyboardType;
   final int maxLines;
+  final int minLines;
   final Iterable<String>? autofillHints;
   final TextCapitalization textCapitalization;
   final ValueChanged<String>? onSubmitted;
@@ -703,7 +874,7 @@ class GlassField extends StatelessWidget {
         obscureText: obscureText,
         keyboardType: keyboardType,
         maxLines: maxLines,
-        minLines: 1,
+        minLines: minLines,
         autofillHints: autofillHints,
         textCapitalization: keyboardType == null && !obscureText
             ? textCapitalization

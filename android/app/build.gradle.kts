@@ -9,10 +9,14 @@ plugins {
 
 android {
     namespace = "app.octria.octria"
-    compileSdk = flutter.compileSdkVersion
+    // The reminders plugin is built against Android 17 (API 37). This only
+    // changes what the app compiles against, not which phones it runs on.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // Reminders need newer Java time APIs on older Android.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -49,4 +53,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

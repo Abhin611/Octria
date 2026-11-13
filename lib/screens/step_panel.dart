@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../graph/graph_painter.dart';
 import '../model/plan.dart';
+import '../ofy/ofy.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
 import '../widgets/spring_sheet.dart';
@@ -30,10 +31,15 @@ class StepPanel extends StatelessWidget {
     this.onSendBack,
     this.onEdit,
     this.collab,
+    this.sharedPart,
     this.onAddDependency,
     this.onSaveDescription,
     this.showNeeds = true,
+    this.onCalendar,
   });
+
+  /// Puts this step in the person's own calendar.
+  final VoidCallback? onCalendar;
 
   /// Whether this person sees the step's Needs. Only its owner does, in a
   /// classroom.
@@ -67,6 +73,10 @@ class StepPanel extends StatelessWidget {
   /// own materials show instead.
   final Widget? collab;
 
+  /// For a mock test or checklist point: everyone's part, in place of the
+  /// usual start and done buttons.
+  final Widget? sharedPart;
+
   /// Picks another step this one needs. For the owner and the master.
   final VoidCallback? onAddDependency;
 
@@ -86,13 +96,7 @@ class StepPanel extends StatelessWidget {
     final isDone = step.status == StepStatus.done;
     final waitsForApproval = approvals && step.status == StepStatus.review;
 
-    Widget sectionLabel(String text) => Padding(
-      padding: const EdgeInsets.only(top: 22, bottom: 8),
-      child: Semantics(
-        header: true,
-        child: Text(text, style: TypeRamp.label(p.inkSoft)),
-      ),
-    );
+    Widget sectionLabel(String text) => StepSectionTitle(text);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -110,6 +114,15 @@ class StepPanel extends StatelessWidget {
                   style: TypeRamp.label(p.inkSoft),
                 ),
               ),
+              if (onCalendar != null && step.status != StepStatus.done)
+                PressButton(
+                  label: 'Add to calendar',
+                  icon: CupertinoIcons.calendar_badge_plus,
+                  iconOnly: true,
+                  quiet: true,
+                  height: 44,
+                  onTap: onCalendar,
+                ),
               PressButton(
                 label: 'Close',
                 icon: CupertinoIcons.xmark,
@@ -128,14 +141,31 @@ class StepPanel extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(18, 2, 18, 24),
             children: [
               Text(step.title, style: TypeRamp.title(p.ink)),
-              const SizedBox(height: 6),
-              Text(
-                '${plan.phase(step.phaseId).title} · Due ${shortDate(step.due)} · '
-                '${_hours(step.estimateHours)} estimated',
-                style: TypeRamp.caption(
-                  plan.isOverdue(step) ? p.blocked : p.inkSoft,
-                ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  _MetaTag(
+                    icon: CupertinoIcons.square_stack_3d_up,
+                    text: plan.phase(step.phaseId).title,
+                  ),
+                  _MetaTag(
+                    icon: CupertinoIcons.calendar,
+                    text: 'Due ${shortDate(step.due)}',
+                    colour: plan.isOverdue(step) ? p.blocked : null,
+                  ),
+                  _MetaTag(
+                    icon: CupertinoIcons.clock,
+                    text: _hours(step.estimateHours),
+                  ),
+                  _MetaTag(
+                    icon: CupertinoIcons.person,
+                    text: plan.member(step.ownerId).name,
+                  ),
+                ],
               ),
+              const SizedBox(height: 4),
               if (onSaveDescription != null)
                 _DescriptionBox(
                   key: ValueKey('description-${step.id}'),
@@ -146,8 +176,9 @@ class StepPanel extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(step.description, style: TypeRamp.body(p.ink)),
               ],
-              const SizedBox(height: 18),
-              if (waitsForApproval && canApprove) ...[
+              const SizedBox(height: 20),
+              if (step.shared && sharedPart != null) sharedPart!,
+              if (!step.shared && waitsForApproval && canApprove) ...[
                 PressButton(
                   label: 'Approve',
                   icon: CupertinoIcons.checkmark_alt,
@@ -164,18 +195,19 @@ class StepPanel extends StatelessWidget {
                   expand: true,
                   onTap: onSendBack,
                 ),
-              ] else if (waitsForApproval)
+              ] else if (!step.shared && waitsForApproval)
                 Text(
                   'Waiting for the master or co-master to approve this.',
                   style: TypeRamp.label(p.inkSoft),
                 )
-              else if (!editable)
+              else if (!editable && !step.shared)
                 Text(
                   'This is ${plan.member(step.ownerId).name}’s step. You can '
                   'look, and only they or the master can change it.',
                   style: TypeRamp.label(p.inkSoft),
                 ),
-              if (editable &&
+              if (!step.shared &&
+                  editable &&
                   !isDone &&
                   step.status == StepStatus.todo &&
                   open.isNotEmpty)
@@ -187,7 +219,10 @@ class StepPanel extends StatelessWidget {
                     style: TypeRamp.label(p.inkSoft),
                   ),
                 ),
-              if (editable && !isDone && step.status == StepStatus.todo) ...[
+              if (!step.shared &&
+                  editable &&
+                  !isDone &&
+                  step.status == StepStatus.todo) ...[
                 PressButton(
                   label: open.isEmpty ? 'Start step' : 'Start anyway',
                   prominent: true,
@@ -197,39 +232,49 @@ class StepPanel extends StatelessWidget {
                   onTap: onStart,
                 ),
                 const SizedBox(height: 4),
-                PressButton(
-                  label: 'Mark done',
-                  quiet: true,
-                  height: 44,
-                  expand: true,
-                  onTap: onMarkDone,
+                OfyTarget(
+                  id: 'step:done',
+                  child: PressButton(
+                    label: 'Mark done',
+                    quiet: true,
+                    height: 44,
+                    expand: true,
+                    onTap: onMarkDone,
+                  ),
                 ),
               ],
-              if (editable &&
+              if (!step.shared &&
+                  editable &&
                   !isDone &&
                   !waitsForApproval &&
                   step.status != StepStatus.todo)
                 touch
-                    ? SwipeToDone(
-                        label: 'Slide to mark done',
-                        trackColor: p.control,
-                        thumbColor: p.done,
-                        thumb: Icon(
-                          CupertinoIcons.checkmark_alt,
-                          color: p.ground,
-                          size: 22,
+                    ? OfyTarget(
+                        id: 'step:done',
+                        child: SwipeToDone(
+                          label: 'Slide to mark done',
+                          trackColor: p.control,
+                          thumbColor: p.done,
+                          thumb: Icon(
+                            CupertinoIcons.checkmark_alt,
+                            color: p.ground,
+                            size: 22,
+                          ),
+                          textStyle: TypeRamp.label(p.inkSoft),
+                          onCommit: onMarkDone,
                         ),
-                        textStyle: TypeRamp.label(p.inkSoft),
-                        onCommit: onMarkDone,
                       )
-                    : PressButton(
-                        label: 'Mark done',
-                        icon: CupertinoIcons.checkmark_alt,
-                        height: 44,
-                        expand: true,
-                        onTap: onMarkDone,
+                    : OfyTarget(
+                        id: 'step:done',
+                        child: PressButton(
+                          label: 'Mark done',
+                          icon: CupertinoIcons.checkmark_alt,
+                          height: 44,
+                          expand: true,
+                          onTap: onMarkDone,
+                        ),
                       ),
-              if (editable && isDone)
+              if (editable && isDone && !step.shared)
                 PressButton(
                   label: 'Reopen step',
                   height: 44,
@@ -255,11 +300,14 @@ class StepPanel extends StatelessWidget {
                 if (editable && onAddDependency != null)
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: PressButton(
-                      label: 'Add a step it needs',
-                      icon: CupertinoIcons.plus,
-                      quiet: true,
-                      onTap: onAddDependency,
+                    child: OfyTarget(
+                      id: 'step:add-need',
+                      child: PressButton(
+                        label: 'Add a step it needs',
+                        icon: CupertinoIcons.plus,
+                        quiet: true,
+                        onTap: onAddDependency,
+                      ),
                     ),
                   ),
               ],
@@ -308,17 +356,20 @@ class StepPanel extends StatelessWidget {
                 ],
               ],
               sectionLabel('Owner'),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final m in plan.members)
-                    SelectChip(
-                      label: m.name,
-                      selected: m.id == step.ownerId,
-                      onTap: editable ? () => onHandOver(m.id) : () {},
-                    ),
-                ],
+              OfyTarget(
+                id: 'step:owner',
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final m in plan.members)
+                      SelectChip(
+                        label: m.name,
+                        selected: m.id == step.ownerId,
+                        onTap: editable ? () => onHandOver(m.id) : () {},
+                      ),
+                  ],
+                ),
               ),
               if (dependents.isNotEmpty) ...[
                 sectionLabel('Unblocks'),
@@ -363,6 +414,77 @@ class StepPanel extends StatelessWidget {
   String _names(List<PlanStep> steps) {
     if (steps.length == 1) return '“${steps.first.title}”';
     return '${steps.length} steps it needs';
+  }
+}
+
+/// A section's name in the step's details: a fine line above, small
+/// capitals, and room around it, so each part stands apart.
+class StepSectionTitle extends StatelessWidget {
+  const StepSectionTitle(this.text, {super.key, this.top = 26});
+
+  final String text;
+  final double top;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Palette.of(context);
+    return Padding(
+      padding: EdgeInsets.only(top: top, bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(height: 0.5, color: p.hairline),
+          const SizedBox(height: 14),
+          Semantics(
+            header: true,
+            child: Text(
+              text.toUpperCase(),
+              style: TypeRamp.caption(p.inkSoft)
+                  .weighted(FontWeight.w700)
+                  .copyWith(letterSpacing: 0.9, fontSize: 11.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One fact about a step, such as its due date, as a small tag.
+class _MetaTag extends StatelessWidget {
+  const _MetaTag({required this.icon, required this.text, this.colour});
+
+  final IconData icon;
+  final String text;
+  final Color? colour;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = Palette.of(context);
+    final ink = colour ?? p.inkSoft;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+      decoration: BoxDecoration(
+        color: p.control,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: colour ?? p.hairline),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: ink),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TypeRamp.caption(colour ?? p.ink),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

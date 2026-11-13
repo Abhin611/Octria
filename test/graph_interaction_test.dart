@@ -209,7 +209,17 @@ void main() {
     await tester.tapAt(_at(tester, 'p2'));
     await tester.pump(const Duration(seconds: 1));
     expect(_scene(tester).selectedId, 'p2');
-    expect(find.text('Study materials'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('STUDY MATERIALS'),
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const ValueKey('p2')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(find.text('STUDY MATERIALS'), findsOneWidget);
     expect(find.text('Thermodynamics notes'), findsOneWidget);
 
     final needed = find.text('Waves and optics');
@@ -461,11 +471,15 @@ void main() {
 
     await tester.tap(find.bySemanticsLabel('Switch to dark background'));
     await tester.pump(const Duration(milliseconds: 300));
+    // The colours fade across; wait for the fade to finish.
+    await tester.pump(const Duration(milliseconds: 500));
     expect(_scene(tester).palette.brightness, Brightness.dark);
 
     // The graph keeps its place when the background changes.
     await tester.tap(find.bySemanticsLabel('Switch to white background'));
     await tester.pump(const Duration(milliseconds: 300));
+    // The colours fade across; wait for the fade to finish.
+    await tester.pump(const Duration(milliseconds: 500));
     expect(_scene(tester).palette.brightness, Brightness.light);
     expect(tester.takeException(), isNull);
   });

@@ -10,6 +10,7 @@ import 'camera.dart';
 import 'graph_painter.dart';
 import 'plan_controller.dart';
 import '../widgets/hover_hint.dart';
+import 'plan_changes.dart';
 
 enum _Drag { none, pan, move, link }
 
@@ -42,7 +43,13 @@ class GraphView extends StatefulWidget {
     this.onMemberTap,
     this.onRequestHandover,
     this.onHandleTap,
+    this.changes,
+    this.changing,
   });
+
+  /// A re-plan to play back on the map, and how far through it is.
+  final PlanChanges? changes;
+  final Animation<double>? changing;
 
   /// The + beside a step was tapped, rather than dragged to link it.
   final ValueChanged<String>? onHandleTap;
@@ -301,10 +308,10 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
         if (keys.isControlPressed || keys.isMetaPressed) {
           final factor = 1 - scroll.scrollDelta.dy * 0.0016;
           _camera.zoomAround(scroll.localPosition, factor.clamp(0.8, 1.25));
+          _camera.release(Offset.zero);
         } else {
-          _camera.panBy(-scroll.scrollDelta);
+          _camera.scrollBy(-scroll.scrollDelta);
         }
-        _camera.release(Offset.zero);
       });
     } else if (e is PointerScaleEvent) {
       _camera.zoomAround(e.localPosition, e.scale);
@@ -324,14 +331,18 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
         _hoveringEdge = overEdge;
       });
     }
-    _hintFor(e.localPosition, handle);
+    _hintFor(e.localPosition, handle, handle == null ? node : null);
   }
 
-  /// Explains a person's name or a step's + after the pointer rests there.
-  void _hintFor(Offset local, String? handle) {
+  /// Explains a person's name, a step's +, or where a step stands, after the
+  /// pointer rests there.
+  void _hintFor(Offset local, String? handle, [String? node]) {
     String? hint;
+    final step = node == null ? null : _controller.plan.steps[node];
     if (handle != null && widget.onHandleTap != null) {
       hint = 'Send this step’s owner a study material, a board or a suggestion';
+    } else if (step != null && _drag == _Drag.none) {
+      hint = '${step.title}: ${_controller.plan.explain(step)}';
     } else if (widget.onMemberTap != null) {
       final inStrip = local.dy < stripEndFor(_camera);
       final inGutter = local.dx < gutterEndFor(_camera);
@@ -348,7 +359,9 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
           final name =
               plan.members.where((m) => m.id == band.key).firstOrNull?.name ??
               'them';
-          hint = band.key == plan.meId ? 'Your steps' : 'Chat with $name';
+          hint = band.key == plan.meId
+              ? 'Your steps'
+              : 'Chat with $name, or see more about them';
           break;
         }
       }
@@ -715,6 +728,7 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
                       _controller,
                       widget.focus,
                       widget.celebration,
+                      widget.changing,
                     ]),
                     builder: (context, _) {
                       final plan = _controller.plan;
@@ -740,6 +754,8 @@ class _GraphViewState extends State<GraphView> with TickerProviderStateMixin {
                         texts: _texts,
                         reveal: _reveal,
                         flow: _flow,
+                        changes: widget.changes,
+                        changeT: widget.changing?.value ?? 0,
                       );
                       final strip = stripPaneFor(_camera);
                       final gutter = gutterPaneFor(_camera);
@@ -822,10 +838,16 @@ const EdgeInsets fitPadding = EdgeInsets.fromLTRB(28, 56, 16, 24);
 
 /// Paints the plan's outline, the route and the current view.
 class Minimap extends StatelessWidget {
-  const Minimap({super.key, required this.controller, required this.camera});
+  const Minimap({
+    super.key,
+    required this.controller,
+    required this.camera,
+    this.size = const Size(176, 104),
+  });
 
   final PlanController controller;
   final GraphCamera camera;
+  final Size size;
 
   void _jump(Offset local, Size size) {
     final world = controller.layout.size;
@@ -839,7 +861,6 @@ class Minimap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const size = Size(176, 104);
     return Semantics(
       label: 'Minimap. Drag to move around the plan.',
       child: GestureDetector(

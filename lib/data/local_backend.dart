@@ -6,9 +6,12 @@ import 'package:flutter/foundation.dart' show setEquals;
 
 import '../kanvas/kanvas_model.dart';
 import '../model/plan.dart';
+import '../ai/ai.dart';
+import '../ai/sample_ai.dart';
 import 'backend.dart';
 import 'drive.dart';
 import 'models.dart';
+import '../ai/split.dart';
 
 class _Room {
   _Room(this.classroom);
@@ -29,6 +32,7 @@ class _Room {
   final Map<String, Handover> handovers = {};
   final Map<String, ClassroomBoard> boards = {};
   final Map<String, Offer> offers = {};
+  final List<TrashItem> trash = [];
 }
 
 class _Account {
@@ -124,8 +128,16 @@ class LocalBackend implements Backend {
   Future<void> signOut() async => _setUser(null);
 
   @override
-  Future<void> saveProfile({required String name, required String bio}) async {
-    final next = _me.copyWith(name: name.trim(), bio: bio.trim());
+  Future<void> saveProfile({
+    required String name,
+    required String bio,
+    List<String>? skills,
+  }) async {
+    final next = _me.copyWith(
+      name: name.trim(),
+      bio: bio.trim(),
+      skills: skills == null ? null : cleanSkills(skills),
+    );
     _accounts[next.email]?.user = next;
     for (final room in _rooms.values) {
       final m = room.members[next.uid];
@@ -164,6 +176,7 @@ class LocalBackend implements Backend {
     required bool individual,
     DateTime? deadline,
     double? hoursPerWeek,
+    bool linked = false,
   }) async {
     final me = _me;
     final id = newId();
@@ -181,6 +194,7 @@ class LocalBackend implements Backend {
         hoursPerWeek: hoursPerWeek,
         inviteCode: newInviteCode(_random),
         createdAt: _now,
+        linked: linked && !individual,
       ),
     );
     room.members[me.uid] = ClassroomMember(uid: me.uid, name: me.name);
@@ -459,8 +473,23 @@ class LocalBackend implements Backend {
   Future<void> deletePhase(String classroomId, String phaseId) async {
     final room = _room(classroomId);
     _requireManager(room);
-    room.phases.remove(phaseId);
+    final phase = room.phases.remove(phaseId);
+    final steps = room.steps.values.where((s) => s.phaseId == phaseId).toList();
     room.steps.removeWhere((_, s) => s.phaseId == phaseId);
+    if (phase != null) {
+      room.trash.insert(
+        0,
+        TrashItem(
+          id: newId(),
+          kind: TrashKind.phase,
+          title: phase.title,
+          deletedBy: _me.uid,
+          deletedAt: _now,
+          phase: phase,
+          steps: steps,
+        ),
+      );
+    }
     _changes.add(null);
   }
 
@@ -476,7 +505,33 @@ class LocalBackend implements Backend {
         before != null &&
         before.dependsOn.toSet().containsAll(step.dependsOn) &&
         before.copyWith(dependsOn: step.dependsOn).storedSameAs(step);
-    if (!manages && !mine && !unlinks) {
+    // Someone in a test or check point marking only their own part.
+    final ownPart =
+        before != null &&
+        before.participants.contains(me) &&
+        before
+            .copyWith(
+              doneBy: step.doneBy,
+              status: step.status,
+              ticks: step.ticks,
+            )
+            .storedSameAs(step) &&
+        {...before.ticks.keys, ...step.ticks.keys}.every(
+          (u) =>
+              u == me ||
+              (before.ticks[u]?.join('\n') ?? '') ==
+                  (step.ticks[u]?.join('\n') ?? ''),
+        ) &&
+        step.status == step.sharedStatus &&
+        before.doneBy
+            .toSet()
+            .difference(step.doneBy.toSet())
+            .every((u) => u == me) &&
+        step.doneBy
+            .toSet()
+            .difference(before.doneBy.toSet())
+            .every((u) => u == me);
+    if (!manages && !mine && !unlinks && !ownPart) {
       throw const BackendFailure('You can only change your own steps.');
     }
     if (!manages &&
@@ -515,6 +570,120 @@ class LocalBackend implements Backend {
     }
     room.steps.remove(stepId);
     room.comments.remove(stepId);
+    room.trash.insert(
+      0,
+      TrashItem(
+        id: newId(),
+        kind: TrashKind.step,
+        title: step.title,
+        deletedBy: _me.uid,
+        deletedAt: _now,
+        steps: [step],
+      ),
+    );
+    _changes.add(null);
+  }
+
+  @override
+  Stream<List<TrashItem>> trash(String classroomId) =>
+      _live(() => List.of(_room(classroomId).trash));
+
+  @override
+  Future<void> restoreTrash(String classroomId, TrashItem item) async {
+    final room = _room(classroomId);
+    final phase = item.phase;
+    if (phase != null) {
+      _requireManager(room);
+      room.phases[phase.id] = phase;
+    }
+    for (final s in item.steps) {
+      if (!room.classroom.canManage(_me.uid) && s.ownerId != _me.uid) {
+        throw const BackendFailure(
+          'Only the master, a co-master or the step’s owner can bring it back.',
+        );
+      }
+      room.steps[s.id] = s;
+    }
+    room.trash.removeWhere((x) => x.id == item.id);
+    _changes.add(null);
+  }
+
+  @override
+  Future<void> purgeTrash(String classroomId, String itemId) async {
+    final room = _room(classroomId);
+    final item = room.trash.where((x) => x.id == itemId).firstOrNull;
+    if (item == null) return;
+    if (item.deletedBy != _me.uid && !room.classroom.canManage(_me.uid)) {
+      throw const BackendFailure('Only whoever deleted it can remove it.');
+    }
+    room.trash.remove(item);
+    _changes.add(null);
+  }
+
+  @override
+  Future<void> hideThread(
+    String classroomId,
+    String threadId,
+    bool hidden,
+  ) async {
+    final room = _room(classroomId);
+    final t = _thread(room, threadId);
+    final me = _me.uid;
+    room.threads[threadId] = t.copyWith(
+      hiddenBy: [
+        for (final u in t.hiddenBy)
+          if (u != me) u,
+        if (hidden) me,
+      ],
+    );
+    _changes.add(null);
+  }
+
+  final Map<String, Set<String>> _hiddenActivity = {};
+
+  @override
+  Future<Set<String>> hiddenActivity() async =>
+      Set.of(_hiddenActivity[_me.uid] ?? const <String>{});
+
+  @override
+  Future<void> hideActivity(Iterable<String> entryIds) async {
+    (_hiddenActivity[_me.uid] ??= {}).addAll(entryIds);
+    _changes.add(null);
+  }
+
+  final Map<String, List<TestResult>> _results = {};
+
+  @override
+  Stream<List<TestResult>> results() =>
+      _live(() => List.of(_results[_me.uid] ?? const <TestResult>[]));
+
+  @override
+  Future<void> saveResult(TestResult result) async {
+    if (result.total <= 0 || result.right < 0 || result.right > result.total) {
+      throw const BackendFailure('That result doesn’t add up.');
+    }
+    (_results[_me.uid] ??= []).insert(
+      0,
+      TestResult(
+        id: result.id.isEmpty ? newId() : result.id,
+        classroomId: result.classroomId,
+        label: result.label,
+        targetId: result.targetId,
+        right: result.right,
+        total: result.total,
+        mock: result.mock,
+        level: result.level,
+        interview: result.interview,
+        missed: result.missed.take(20).toList(),
+        at: _now,
+      ),
+    );
+    _changes.add(null);
+  }
+
+  @override
+  Future<void> deleteResult(String resultId) async {
+    _results[_me.uid]?.removeWhere((r) => r.id == resultId);
     _changes.add(null);
   }
 
@@ -586,6 +755,22 @@ class LocalBackend implements Backend {
       lastSeenAt: _now,
       chatSeenAt: m.chatSeenAt,
     );
+  }
+
+  // Ofy ---------------------------------------------------------------------
+
+  @override
+  Ai ai = SampleAi();
+
+  final _aiCalls = <String, int>{};
+
+  @override
+  Future<void> spendAiCall() async {
+    final d = _now;
+    final key = '${_me.uid}/${d.year}-${d.month}-${d.day}';
+    final used = _aiCalls[key] ?? 0;
+    if (used >= kAiCallsPerDay) throw const BackendFailure(aiLimitReached);
+    _aiCalls[key] = used + 1;
   }
 
   // Files -------------------------------------------------------------------
@@ -960,6 +1145,14 @@ class LocalBackend implements Backend {
   Future<List<Notice>> inbox() async => List.of(_inboxes[_me.uid] ?? const []);
 
   @override
+  Future<AppUser?> profileOf(String uid) async {
+    for (final a in _accounts.values) {
+      if (a.user.uid == uid) return a.user;
+    }
+    return null;
+  }
+
+  @override
   Future<DateTime?> notificationsSeenAt() async => _notificationsSeen[_me.uid];
 
   @override
@@ -1010,6 +1203,13 @@ class LocalBackend implements Backend {
             ? ChatThread.directId(people[0], people[1])
             : newId());
     room.threads[id] ??= ChatThread(id: id, participants: people);
+    // Starting it again brings a deleted chat back.
+    final open = room.threads[id]!;
+    if (open.hiddenFor(_me.uid)) {
+      room.threads[id] = open.copyWith(
+        hiddenBy: open.hiddenBy.where((u) => u != _me.uid).toList(),
+      );
+    }
     _changes.add(null);
     return id;
   }
@@ -1048,9 +1248,7 @@ class LocalBackend implements Backend {
     (room.threadMessages[threadId] ??= []).add(
       ChatMessage(id: newId(), authorUid: me, text: trimmed, createdAt: _now),
     );
-    room.threads[threadId] = ChatThread(
-      id: t.id,
-      participants: t.participants,
+    room.threads[threadId] = t.copyWith(
       lastAt: _now,
       lastText: trimmed,
       lastBy: me,
@@ -1063,14 +1261,7 @@ class LocalBackend implements Backend {
   Future<void> markThreadRead(String classroomId, String threadId) async {
     final room = _room(classroomId);
     final t = _thread(room, threadId);
-    room.threads[threadId] = ChatThread(
-      id: t.id,
-      participants: t.participants,
-      lastAt: t.lastAt,
-      lastText: t.lastText,
-      lastBy: t.lastBy,
-      readAt: {...t.readAt, _me.uid: _now},
-    );
+    room.threads[threadId] = t.copyWith(readAt: {...t.readAt, _me.uid: _now});
     _changes.add(null);
   }
 

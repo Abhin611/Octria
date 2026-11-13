@@ -115,6 +115,10 @@ class PlanController extends ChangeNotifier {
 
   bool reduceMotion = false;
 
+  /// How long steps take to glide to new places, as a spring's response in
+  /// seconds. Raised while a re-plan plays back, so the moves can be followed.
+  double travelResponse = 0.42;
+
   Plan get plan => _plan;
   GraphLayout get layout => _layout;
   Set<String> get critical => _critical;
@@ -160,7 +164,7 @@ class PlanController extends ChangeNotifier {
       ..target = 1
       ..velocity = 0
       ..dampingRatio = 1
-      ..response = 0.42;
+      ..response = travelResponse;
     _last = Duration.zero;
     if (!_ticker.isActive) _ticker.start();
     notifyListeners();

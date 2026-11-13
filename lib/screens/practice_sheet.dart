@@ -8,7 +8,9 @@ import '../model/plan.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
 import 'classroom_forms.dart';
+import 'practice_points.dart';
 import 'step_collab.dart';
+import 'step_panel.dart';
 
 /// A well-known practice site. Octria only links to these: it keeps no copied
 /// questions and runs no code.
@@ -125,6 +127,7 @@ class PracticeSheet extends StatefulWidget {
     required this.taskType,
     required this.plan,
     required this.canManage,
+    this.classroom,
   });
 
   final Backend backend;
@@ -132,6 +135,9 @@ class PracticeSheet extends StatefulWidget {
   final TaskType taskType;
   final Plan plan;
   final bool canManage;
+
+  /// For practice Ofy writes; without it, only the links show.
+  final Classroom? classroom;
 
   @override
   State<PracticeSheet> createState() => _PracticeSheetState();
@@ -213,6 +219,22 @@ class _PracticeSheetState extends State<PracticeSheet> {
             onTap: _add,
           ),
           children: [
+            if (widget.classroom != null &&
+                widget.plan.steps.values.any((s) => !s.isPoint)) ...[
+              const StepSectionTitle('Practise with Ofy', top: 4),
+              Text(
+                'Questions Ofy writes for one step, one phase, or the whole '
+                'plan. Practise any time; it doesn’t count as done.',
+                style: TypeRamp.caption(p.inkSoft),
+              ),
+              const SizedBox(height: 10),
+              PracticePicker(
+                backend: widget.backend,
+                classroom: widget.classroom!,
+                plan: widget.plan,
+              ),
+              const StepSectionTitle('Practice sites'),
+            ],
             Text(
               'Mock interviews, question banks and coding practice, a tap '
               'away. Links open the site itself.',

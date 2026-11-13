@@ -1,7 +1,7 @@
 name: octria
 description: "Turns any task into a classroom with a roadmap shown as a node graph."
 publish_to: 'none'
-version: 0.7.1+19
+version: 0.15.1+30
 
 environment:
   sdk: ^3.13.7
@@ -11,12 +11,19 @@ dependencies:
   cloud_firestore: ^7.1.0
   cupertino_icons: ^2.0.0
   file_picker: ^13.3.2
+  firebase_ai: ^5.1.0
+  firebase_app_check: ^0.5.1
   firebase_auth: ^7.0.1
   firebase_core: ^5.1.0
   flutter:
     sdk: flutter
+  flutter_local_notifications: ^23.0.1
   http: ^1.6.0
   image: ^4.12.0
+  share_plus: ^13.3.1
+  shared_preferences: ^2.5.6
+  speech_to_text: ^7.5.0
+  timezone: ^0.11.2
   url_launcher: ^6.3.3
   web: ^1.1.2
 

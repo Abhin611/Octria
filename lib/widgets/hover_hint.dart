@@ -16,6 +16,10 @@ class HoverHint extends StatefulWidget {
   /// How long the pointer rests before the hint shows.
   static const wait = Duration(milliseconds: 350);
 
+  /// Until when the next hint shows at once: moving along a row of icons
+  /// shouldn't mean waiting at each one.
+  static DateTime _warmUntil = DateTime(2000);
+
   @override
   State<HoverHint> createState() => _HoverHintState();
 }
@@ -55,6 +59,11 @@ class _HoverHintState extends State<HoverHint> {
 
   void _hide() {
     _timer?.cancel();
+    if (_entry != null) {
+      HoverHint._warmUntil = DateTime.now().add(
+        const Duration(milliseconds: 600),
+      );
+    }
     _remove();
   }
 
@@ -76,7 +85,13 @@ class _HoverHintState extends State<HoverHint> {
     if (widget.message.isEmpty) return widget.child;
     return MouseRegion(
       onEnter: (e) {
-        if (e.kind == PointerDeviceKind.mouse) _show(HoverHint.wait);
+        if (e.kind == PointerDeviceKind.mouse) {
+          _show(
+            DateTime.now().isBefore(HoverHint._warmUntil)
+                ? Duration.zero
+                : HoverHint.wait,
+          );
+        }
       },
       onExit: (_) => _hide(),
       child: Listener(
@@ -132,7 +147,7 @@ class HintBubble extends StatelessWidget {
         ),
       ),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 260),
+        constraints: const BoxConstraints(maxWidth: 300),
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
           color: dark ? const Color(0xF2F4EEE8) : const Color(0xEB211A15),

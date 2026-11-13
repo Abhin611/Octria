@@ -7,10 +7,12 @@ import '../data/backend.dart';
 import '../data/drive.dart';
 import '../data/models.dart';
 import '../model/plan.dart';
+import '../ofy/ofy.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
 import 'classroom_forms.dart';
 import 'step_collab.dart';
+import 'step_panel.dart';
 
 /// Picks a file, asks who it's for, puts it in the person's own Drive and
 /// adds it to the classroom's library. Returns a message to show, or null.
@@ -566,13 +568,7 @@ class _StepFilesState extends State<StepFiles> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 22, bottom: 8),
-              child: Semantics(
-                header: true,
-                child: Text('Files', style: TypeRamp.label(p.inkSoft)),
-              ),
-            ),
+            const StepSectionTitle('Files'),
             for (final f in here)
               FileRow(
                 name: f.name,
@@ -601,11 +597,14 @@ class _StepFilesState extends State<StepFiles> {
             if (_mine)
               Align(
                 alignment: Alignment.centerLeft,
-                child: PressButton(
-                  label: _adding ? 'Adding…' : 'Add a file from your device',
-                  icon: CupertinoIcons.paperclip,
-                  quiet: true,
-                  onTap: _adding ? null : _add,
+                child: OfyTarget(
+                  id: 'step:add-file',
+                  child: PressButton(
+                    label: _adding ? 'Adding…' : 'Add a file from your device',
+                    icon: CupertinoIcons.paperclip,
+                    quiet: true,
+                    onTap: _adding ? null : _add,
+                  ),
                 ),
               ),
             if (_mine && here.isEmpty)

@@ -47,7 +47,12 @@ class Overview {
     required this.next,
     this.notices = const [],
     this.noticesSeenAt,
+    this.parts = const [],
   });
+
+  /// Shared steps, such as a mock test, still waiting on this person's own
+  /// part. Soonest due first.
+  final List<MyStep> parts;
 
   /// What other people did that affects this person, newest first.
   final List<MyAction> notices;
@@ -95,6 +100,13 @@ Future<Overview> loadOverview(Backend backend) async {
     for (final room in classrooms) backend.activity(room.id, limit: 500),
   ]);
   final noticesSeenAt = await backend.notificationsSeenAt();
+  // What this person cleared from their own activity page.
+  var hidden = const <String>{};
+  try {
+    hidden = await backend.hiddenActivity();
+  } on Object {
+    // Showing everything is the safe way to fail.
+  }
   var inbox = const <Notice>[];
   try {
     inbox = await backend.inbox();
@@ -105,6 +117,7 @@ Future<Overview> loadOverview(Backend backend) async {
 
   final rooms = <RoomSummary>[];
   final steps = <MyStep>[];
+  final parts = <MyStep>[];
   MyStep? next;
   for (final state in states) {
     final plan = planFrom(state, me, now);
@@ -118,6 +131,19 @@ Future<Overview> loadOverview(Backend backend) async {
       ),
     );
     for (final step in state.steps) {
+      if (step.shared &&
+          step.ownerId != me &&
+          step.participants.contains(me) &&
+          !step.doneBy.contains(me) &&
+          step.status != StepStatus.done) {
+        parts.add(
+          MyStep(
+            step: step,
+            standing: plan.standing(plan.steps[step.id] ?? step),
+            room: state.classroom,
+          ),
+        );
+      }
       if (step.ownerId != me) continue;
       steps.add(
         MyStep(
@@ -138,11 +164,13 @@ Future<Overview> loadOverview(Backend backend) async {
     }
   }
   steps.sort((a, b) => a.step.due.compareTo(b.step.due));
+  parts.sort((a, b) => a.step.due.compareTo(b.step.due));
 
   final actions = [
     for (var i = 0; i < logs.length; i++)
       for (final entry in logs[i])
-        if (entry.actorUid == me) MyAction(entry: entry, room: classrooms[i]),
+        if (entry.actorUid == me && !hidden.contains(entry.id))
+          MyAction(entry: entry, room: classrooms[i]),
   ]..sort((a, b) => b.entry.createdAt.compareTo(a.entry.createdAt));
 
   final notices = [
@@ -160,6 +188,7 @@ Future<Overview> loadOverview(Backend backend) async {
     noticesSeenAt: noticesSeenAt,
     rooms: rooms,
     steps: steps,
+    parts: parts,
     actions: actions,
     next: next,
     stats: summariseUser(

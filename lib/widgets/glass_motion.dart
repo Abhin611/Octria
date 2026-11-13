@@ -1,5 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
+import '../theme/tokens.dart';
+
 /// A page arriving like glass settling into place: it rises the last little
 /// way and grows into focus. It turns opaque almost at once, so the page
 /// beneath never shows through it; nothing is blurred, so it stays smooth on
@@ -8,8 +10,8 @@ class GlassRoute<T> extends PageRouteBuilder<T> {
   GlassRoute({required WidgetBuilder builder, super.settings})
     : super(
         pageBuilder: (context, _, _) => builder(context),
-        transitionDuration: const Duration(milliseconds: 320),
-        reverseTransitionDuration: const Duration(milliseconds: 240),
+        transitionDuration: const Duration(milliseconds: 300),
+        reverseTransitionDuration: const Duration(milliseconds: 200),
         opaque: true,
         transitionsBuilder: (context, animation, _, child) {
           final fade = CurvedAnimation(
@@ -21,7 +23,7 @@ class GlassRoute<T> extends PageRouteBuilder<T> {
           }
           final settle = CurvedAnimation(
             parent: animation,
-            curve: Curves.easeOutCubic,
+            curve: Motion.out,
             reverseCurve: Curves.easeInCubic,
           );
           return FadeTransition(
@@ -57,7 +59,7 @@ Widget glassSwitch(
     child: child,
     builder: (context, child) {
       final still = MediaQuery.disableAnimationsOf(context);
-      final t = still ? 1.0 : Curves.easeOutCubic.transform(animation.value);
+      final t = still ? 1.0 : Motion.out.transform(animation.value);
       return Opacity(
         opacity: (t * 1.6).clamp(0.0, 1.0),
         child: Transform(
@@ -93,7 +95,7 @@ class GlassArrival extends StatelessWidget {
       scale: Tween(
         begin: 0.95,
         end: 1.0,
-      ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+      ).animate(CurvedAnimation(parent: animation, curve: Motion.sheet)),
       alignment: Alignment.bottomCenter,
       child: child,
     );
@@ -116,7 +118,7 @@ Future<T?> showGlassPopover<T>(
     barrierDismissible: true,
     barrierLabel: 'Close',
     barrierColor: const Color(0x14000000),
-    transitionDuration: const Duration(milliseconds: 220),
+    transitionDuration: const Duration(milliseconds: 180),
     pageBuilder: (context, _, _) {
       final size = MediaQuery.sizeOf(context);
       final w = width.clamp(0.0, size.width - 16);
@@ -138,14 +140,14 @@ Future<T?> showGlassPopover<T>(
       );
     },
     transitionBuilder: (context, animation, _, child) {
-      final t = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+      final t = CurvedAnimation(parent: animation, curve: Motion.out);
       if (MediaQuery.disableAnimationsOf(context)) {
         return FadeTransition(opacity: t, child: child);
       }
       return FadeTransition(
         opacity: t,
         child: ScaleTransition(
-          scale: Tween(begin: 0.9, end: 1.0).animate(t),
+          scale: Tween(begin: 0.95, end: 1.0).animate(t),
           alignment: Alignment.topLeft,
           child: child,
         ),

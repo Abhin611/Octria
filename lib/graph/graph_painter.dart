@@ -8,6 +8,7 @@ import '../theme/tokens.dart';
 import 'camera.dart';
 import 'layout.dart';
 import 'plan_controller.dart';
+import 'plan_changes.dart';
 
 double _smooth(double a, double b, double v) {
   final t = ((v - a) / (b - a)).clamp(0.0, 1.0);
@@ -111,7 +112,16 @@ Rect gutterPaneFor(GraphCamera camera) => Rect.fromLTRB(
 /// Where one arrow runs on screen right now. Shared by drawing and tap testing,
 /// so what you tap is exactly what you see.
 class EdgeLine {
-  const EdgeLine(this.start, this.end, this.track, {this.vertical = false});
+  const EdgeLine(
+    this.start,
+    this.end,
+    this.track, {
+    this.vertical = false,
+    this.detour,
+  });
+
+  /// Where across the flow, on screen, a detour runs round other steps.
+  final double? detour;
 
   final Offset start;
   final Offset end;
@@ -125,11 +135,51 @@ class EdgeLine {
   Offset _at(double along, double across) =>
       vertical ? Offset(across, along) : Offset(along, across);
 
-  bool get straight => (_across(end) - _across(start)).abs() < 1;
+  bool get straight =>
+      detour == null && (_across(end) - _across(start)).abs() < 1;
+
+  /// Out to the detour, along it, and back in: three smooth curves.
+  List<(Offset, Offset, Offset, Offset)> get _round {
+    final d = detour!;
+    final span = _along(end) - _along(start);
+    final g = math.min(56.0, math.max(span / 4, 18.0));
+    final out = _at(_along(start) + g, d);
+    final back = _at(_along(end) - g, d);
+    return [
+      (
+        start,
+        _at(_along(start) + g * 0.7, _across(start)),
+        _at(_along(start) + g * 0.3, d),
+        out,
+      ),
+      (out, out, back, back),
+      (
+        back,
+        _at(_along(end) - g * 0.3, d),
+        _at(_along(end) - g * 0.7, _across(end)),
+        end,
+      ),
+    ];
+  }
+
+  static Offset _bez(Offset a, Offset b, Offset c, Offset d, double t) {
+    final u = 1 - t;
+    return a * (u * u * u) +
+        b * (3 * u * u * t) +
+        c * (3 * u * t * t) +
+        d * (t * t * t);
+  }
+
   bool get curved => track <= _along(start) + 2 || track >= _along(end) - 2;
 
   /// The arrow as connected points, close enough to the drawn path to tap.
   List<Offset> get points {
+    if (detour != null) {
+      return [
+        for (final (a, b, c, d) in _round)
+          for (var i = 0; i <= 8; i++) _bez(a, b, c, d, i / 8),
+      ];
+    }
     if (straight) return [start, end];
     if (!curved) {
       return [start, _at(track, _across(start)), _at(track, _across(end)), end];
@@ -153,6 +203,13 @@ class EdgeLine {
   /// A run along the flow, one run across it on the arrow's own track, and a run
   /// into the target, with rounded corners.
   Path get path {
+    if (detour != null) {
+      final path = Path()..moveTo(start.dx, start.dy);
+      for (final (_, b, c, d) in _round) {
+        path.cubicTo(b.dx, b.dy, c.dx, c.dy, d.dx, d.dy);
+      }
+      return path;
+    }
     if (straight) {
       return Path()
         ..moveTo(start.dx, start.dy)
@@ -212,6 +269,9 @@ EdgeLine edgeLineFor(
       b + Offset(route.endDy * port, -half - 8),
       b.dy - half - gap * route.track,
       vertical: true,
+      detour: route.detour == null
+          ? null
+          : camera.toScreen(Offset(route.detour!, 0)).dx,
     );
   }
   final half = node.width / 2;
@@ -221,6 +281,9 @@ EdgeLine edgeLineFor(
     a + Offset(half, route.startDy * port),
     b + Offset(-half - 8, route.endDy * port),
     b.dx - half - gap * route.track,
+    detour: route.detour == null
+        ? null
+        : camera.toScreen(Offset(0, route.detour!)).dy,
   );
 }
 
@@ -248,7 +311,13 @@ class GraphScene {
     required this.texts,
     this.reveal = const AlwaysStoppedAnimation(1),
     this.flow = const AlwaysStoppedAnimation(0),
+    this.changes,
+    this.changeT = 0,
   });
+
+  /// A re-plan playing back on the map, and how far through it is, 0 to 1.
+  final PlanChanges? changes;
+  final double changeT;
 
   /// From 0 to 1 as the graph first arrives.
   final Animation<double> reveal;
@@ -443,6 +512,7 @@ class GraphPainter extends CustomPainter {
       _paintSelectedEdge(canvas, levels);
       _paintLink(canvas);
     }
+    _paintChanges(canvas);
     if (levels.phases > 0) {
       _paintFarMarks(canvas, levels);
       _paintPhaseCards(canvas, levels);
@@ -452,18 +522,23 @@ class GraphPainter extends CustomPainter {
   void _paintTerrain(Canvas canvas, Size size) {
     final layout = scene.controller.layout;
     var i = 0;
+    final count = layout.phaseBands.length;
     for (final band in layout.phaseBands.values) {
+      // The first and last bands run on to the screen's edges, so the map
+      // never ends in a dark stripe however many steps there are.
+      final first = i == 0;
+      final last = i == count - 1;
       final rect = _vertical
           ? Rect.fromLTRB(
               0,
-              _cam.toScreen(band.topLeft).dy,
+              first ? 0 : _cam.toScreen(band.topLeft).dy,
               size.width,
-              _cam.toScreen(band.bottomRight).dy,
+              last ? size.height : _cam.toScreen(band.bottomRight).dy,
             )
           : Rect.fromLTRB(
-              _cam.toScreen(band.topLeft).dx,
+              first ? 0 : _cam.toScreen(band.topLeft).dx,
               0,
-              _cam.toScreen(band.bottomRight).dx,
+              last ? size.width : _cam.toScreen(band.bottomRight).dx,
               size.height,
             );
       if (i.isEven && rect.overlaps(Offset.zero & size)) {
@@ -881,6 +956,134 @@ class GraphPainter extends CustomPainter {
     }
   }
 
+  /// A re-plan playing back: each changed step pulses in turn with its old
+  /// and new date above it, and a step that was left out fades away. Drawn
+  /// over everything, at a size that reads at any zoom.
+  void _paintChanges(Canvas canvas) {
+    final changes = scene.changes;
+    if (changes == null) return;
+    final size = cameraNodeSize(_cam);
+    for (final ch in changes.changes) {
+      final t = changes.progress(ch.id, scene.changeT);
+      if (t <= 0 || t >= 1) continue;
+      final world = ch.dropped ? ch.at : scene.controller.positions[ch.id];
+      if (world == null) continue;
+      final c = _cam.toScreen(world);
+      final rect = Rect.fromCenter(
+        center: c,
+        width: size.width,
+        height: size.height,
+      );
+      // Later is a warning, sooner is good news, gone is gone.
+      final colour = ch.dropped
+          ? _p.blocked
+          : ch.days > 0
+          ? _p.accentWarm
+          : ch.days < 0
+          ? _p.done
+          : _p.accent;
+      const corner = Radius.circular(10);
+
+      if (ch.dropped) {
+        // The step as it was, shrinking a little as it goes.
+        final gone = _smooth(0.1, 0.75, t);
+        final ghost = Rect.fromCenter(
+          center: c,
+          width: size.width * (1 - 0.14 * gone),
+          height: size.height * (1 - 0.14 * gone),
+        );
+        final plate = RRect.fromRectAndRadius(ghost, corner);
+        canvas.drawRRect(
+          plate,
+          Paint()..color = _fade(_p.raised, (1 - gone) * 0.92),
+        );
+        canvas.drawRRect(
+          plate,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2
+            ..color = _fade(colour, 1 - gone),
+        );
+        if (_cam.scale > 0.5 && gone < 1) {
+          canvas.saveLayer(
+            ghost,
+            Paint()..color = Color.fromRGBO(0, 0, 0, 1 - gone),
+          );
+          final title = scene.texts.get(
+            ch.title,
+            TypeRamp.label(_p.ink),
+            ghost.width - 20,
+            maxLines: 2,
+          );
+          title.paint(
+            canvas,
+            Offset(ghost.left + 10, ghost.center.dy - title.height / 2),
+          );
+          canvas.restore();
+        }
+      } else {
+        // A wash of colour over the step, gone by half way.
+        final wash = (1 - _smooth(0, 0.5, t)) * 0.3;
+        if (wash > 0) {
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(rect, corner),
+            Paint()..color = _fade(colour, wash),
+          );
+        }
+      }
+
+      // A ring that opens out from the step.
+      final open = Curves.easeOutCubic.transform((t / 0.55).clamp(0.0, 1.0));
+      final ringFade = 1 - _smooth(0.2, 0.6, t);
+      if (ringFade > 0) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect.inflate(3 + 18 * open), corner),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.5
+            ..color = _fade(colour, ringFade * 0.9),
+        );
+      }
+
+      // What changed, on a tag that rises above the step and stays a moment.
+      final appear = _smooth(0, 0.14, t);
+      final shown = appear * (1 - _smooth(0.84, 1, t));
+      if (shown <= 0) continue;
+      final on = colour.computeLuminance() > 0.45
+          ? const Color(0xFF14110F)
+          : const Color(0xFFFFFFFF);
+      final text = scene.texts.get(
+        ch.label,
+        TypeRamp.caption(on).copyWith(fontWeight: FontWeight.w700),
+        240,
+      );
+      final tag = Rect.fromCenter(
+        center: Offset(c.dx, rect.top - 12 - text.height / 2 - 6 * appear),
+        width: text.width + 18,
+        height: text.height + 9,
+      );
+      canvas.saveLayer(
+        tag.inflate(8),
+        Paint()..color = Color.fromRGBO(0, 0, 0, shown),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          tag.shift(const Offset(0, 2)),
+          const Radius.circular(8),
+        ),
+        Paint()
+          ..color = const Color(0x40000000)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(tag, const Radius.circular(8)),
+        Paint()..color = colour,
+      );
+      text.paint(canvas, tag.topLeft + const Offset(9, 4.5));
+      canvas.restore();
+    }
+  }
+
   void _paintNodes(Canvas canvas, Size size, ZoomLevels levels) {
     final viewport = (Offset.zero & size).inflate(240);
     PlanStep? lifted;
@@ -1062,7 +1265,10 @@ class GraphPainter extends CustomPainter {
       return;
     }
     final word = scene.texts.get(
-      standingWord(standing),
+      // A shared point says how many have finished their part.
+      step.shared && step.participants.length > 1 && standing != Standing.done
+          ? '${step.doneBy.length} of ${step.participants.length} done'
+          : standingWord(standing),
       TypeRamp.caption(_fade(filled ? _p.ink : _p.inkSoft, alpha))
           .weighted(FontWeight.w600)
           .copyWith(fontSize: 11),

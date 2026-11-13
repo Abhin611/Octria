@@ -460,8 +460,15 @@ void main() {
     expect(find.text('Physics'), findsOneWidget);
     expect(find.text('Chemistry'), findsNothing);
 
-    // Every tab opens cleanly.
-    for (final tab in ['Activity', 'Timeline', 'Profile', 'Dashboard']) {
+    // Every tab opens cleanly; on a phone, some are under More.
+    for (final tab in ['Chats', 'Timeline', 'Dashboard']) {
+      await tester.tap(find.text(tab).last);
+      await _settle(tester, 40);
+      expect(tester.takeException(), isNull);
+    }
+    for (final tab in ['Activity', 'Done', 'Deleted', 'Profile']) {
+      await tester.tap(find.bySemanticsLabel(RegExp('^More:')).last);
+      await _settle(tester, 40);
       await tester.tap(find.text(tab).last);
       await _settle(tester, 40);
       expect(tester.takeException(), isNull);
@@ -1094,26 +1101,31 @@ void main() {
         );
         await tester.tap(find.text('Create account'));
         await _settle(tester);
-        expect(find.textContaining('Nothing here yet'), findsOneWidget);
+        // Someone new is welcomed, with the three steps and both ways in,
+        // and none of the empty numbers.
+        expect(find.text('Welcome to Octria'), findsOneWidget);
+        expect(find.text('1. Make a classroom'), findsOneWidget);
+        expect(find.text('Join with a code'), findsOneWidget);
+        expect(find.text('Your classrooms'), findsNothing);
         expect(find.text('Join'), findsNothing);
         expect(backend.currentUser?.name, 'Mina Rao');
 
-        // A new classroom opens on its empty state.
-        await tester.tap(find.bySemanticsLabel('Add a classroom').first);
-        await _settle(tester);
-        await tester.tap(find.text('Create a classroom'));
+        // The welcome goes straight to a new classroom, which opens on its
+        // empty state.
+        await tester.ensureVisible(find.text('Make my first classroom'));
+        await tester.tap(find.text('Make my first classroom'));
         await _settle(tester);
         await tester.enterText(
-          find.bySemanticsLabel('What do you need to finish?').last,
+          find.bySemanticsLabel('Classroom name').last,
           'Campus app',
         );
         await tester.tap(find.text('Create classroom'));
         await _settle(tester, 60);
-        expect(find.textContaining('big stages of the work'), findsOneWidget);
+        expect(find.textContaining('big stages yourself'), findsOneWidget);
         expect(tester.takeException(), isNull);
 
         // A phase.
-        await tester.tap(find.text('Add phases'));
+        await tester.tap(find.text('Add phases myself'));
         await _settle(tester);
         await tester.enterText(
           find.bySemanticsLabel('New phase name').last,
@@ -1147,27 +1159,25 @@ void main() {
       });
     }
 
-    testWidgets('constraint description is optional, and saved when written', (
-      tester,
-    ) async {
+    testWidgets('a group says whether it works together', (tester) async {
       final backend = await open(tester, const Size(1440, 900));
       await backend.registerWithEmail('Mina', 'm@t.dev', 'secret1');
       await _settle(tester);
 
-      Future<void> create(String title, [String? constraints]) async {
+      Future<void> create(String title, [bool together = false]) async {
         await tester.tap(find.bySemanticsLabel('Add a classroom').first);
         await _settle(tester);
         await tester.tap(find.text('Create a classroom'));
         await _settle(tester);
         await tester.enterText(
-          find.bySemanticsLabel('What do you need to finish?').last,
+          find.bySemanticsLabel('Classroom name').last,
           title,
         );
-        if (constraints != null) {
-          await tester.enterText(
-            find.bySemanticsLabel('Constraint description (optional)').last,
-            constraints,
+        if (together) {
+          await tester.tap(
+            find.text('Yes, we learn parts and teach each other'),
           );
+          await _settle(tester);
         }
         await tester.tap(find.text('Create classroom'));
         await _settle(tester, 60);
@@ -1175,14 +1185,13 @@ void main() {
         await _settle(tester, 60);
       }
 
-      await create('Skipped it');
-      await create('Physics', 'Study thermodynamics before waves');
+      await create('App team');
+      await create('Physics', true);
 
       final rooms = await backend.classrooms().first;
-      String of(String title) =>
-          rooms.firstWhere((r) => r.title == title).constraints;
-      expect(of('Skipped it'), isEmpty);
-      expect(of('Physics'), 'Study thermodynamics before waves');
+      bool of(String title) => rooms.firstWhere((r) => r.title == title).linked;
+      expect(of('App team'), isFalse);
+      expect(of('Physics'), isTrue);
       expect(tester.takeException(), isNull);
       await tester.pump(const Duration(seconds: 10));
     });

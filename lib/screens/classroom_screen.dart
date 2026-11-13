@@ -17,20 +17,29 @@ import '../model/plan.dart';
 import '../model/sample_plans.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
+import '../ofy/ofy.dart';
 import '../widgets/glass_menu.dart';
 import '../widgets/glass_motion.dart';
 import '../widgets/spring_sheet.dart';
+import '../model/calendar.dart';
+import 'calendar_sheet.dart';
+import 'replan_sheet.dart';
 import 'classroom_forms.dart';
 import 'map_key.dart';
 import 'plan_views.dart';
 import 'chat_sheet.dart';
 import 'files_sheet.dart';
+import 'plan_draft_sheet.dart';
+import 'practice_points.dart';
 import 'practice_sheet.dart';
 import 'step_collab.dart';
 import 'step_panel.dart';
 import 'requests_sheets.dart';
+import 'room_lists.dart';
 import 'threads_sheet.dart';
 import 'timeline_view.dart';
+import 'skills_sheets.dart';
+import '../graph/plan_changes.dart';
 
 enum PlanView { graph, timeline, list }
 
@@ -137,6 +146,10 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   String? _selectedId;
   String? _lastSelectedId;
   String? _celebrateId;
+
+  /// A re-plan playing back on the graph.
+  late final AnimationController _changing = AnimationController(vsync: this);
+  PlanChanges? _changes;
   String? _linkFromId;
   (String, String)? _selectedEdge;
   GraphDirection _direction = GraphDirection.leftToRight;
@@ -169,6 +182,33 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   Classroom? get _room => _stored?.classroom;
   String get _me => _plan.meId;
 
+  /// Offers one step, or this person's and everyone's unfinished steps, for
+  /// their own calendar.
+  void _showCalendar({String? stepId}) {
+    CalEvent event(PlanStep s) =>
+        eventForStep(s, room: _plan.title, phase: _plan.phase(s.phaseId).title);
+    final one = _plan.steps[stepId];
+    final mine = stepsToSchedule(_plan.steps.values, owner: _me);
+    final all = stepsToSchedule(_plan.steps.values);
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => CalendarSheet(
+          fileName: calendarFileName(one?.title ?? _plan.title),
+          choices: one != null
+              ? [
+                  ('This step', [event(one)]),
+                ]
+              : [
+                  ('My steps', mine.map(event).toList()),
+                  if (all.length != mine.length)
+                    ('Everyone’s steps', all.map(event).toList()),
+                ],
+        ),
+      ),
+    );
+  }
+
   /// Masters and co-masters. With sample plans there's nobody to answer to.
   bool get _manages => _room?.canManage(_me) ?? widget.session == null;
   bool get _isMaster => _room?.masterUid == _me;
@@ -194,7 +234,14 @@ class _ClassroomScreenState extends State<ClassroomScreen>
         if (mounted) setState(() => _chatMessages = messages);
       }, onError: (Object _) {});
       _threadFeed = session.backend.threads(session.classroomId).listen((list) {
-        if (mounted) setState(() => _threads = list);
+        if (mounted) {
+          setState(
+            () => _threads = [
+              for (final t in list)
+                if (!t.hiddenFor(session.backend.currentUser?.uid ?? '')) t,
+            ],
+          );
+        }
       }, onError: (Object _) {});
       _offerFeed = session.backend.offers(session.classroomId).listen((list) {
         if (mounted) setState(() => _offers = list);
@@ -817,6 +864,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           taskType: room.taskType,
           plan: _plan,
           canManage: _manages,
+          classroom: room,
         ),
       ),
     );
@@ -834,6 +882,101 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     );
   }
 
+  /// Ofy drafts phases and steps from the classroom's task, for the master
+  /// to look over before any of it is added.
+  Future<void> _draftPlan() async {
+    final backend = _backend;
+    final room = _room;
+    if (backend == null || room == null) return;
+    final added = await showGlassSheet<bool>(
+      context,
+      (_) => PlanDraftSheet(backend: backend, classroom: room, plan: _plan),
+    );
+    if (added == true && mounted) {
+      _showNotice('Ofy’s plan is in. Change anything you like.');
+    }
+  }
+
+  /// Gives the steps that haven't started to whoever suits each best.
+  Future<void> _shareOut() async {
+    final backend = _backend;
+    final room = _room;
+    if (backend == null || room == null) return;
+    final moved = await showGlassSheet<int>(
+      context,
+      (_) => SplitSheet(backend: backend, classroom: room, plan: _plan),
+    );
+    if (moved != null && moved > 0 && mounted) {
+      _showNotice(
+        '$moved ${moved == 1 ? 'step has a new owner' : 'steps have new owners'}. '
+        'Re-plan to refresh the dates.',
+      );
+    }
+  }
+
+  /// Lays what's left out again from today, to look over before it's applied.
+  Future<void> _replan() async {
+    final backend = _backend;
+    final room = _room;
+    if (backend == null || room == null) return;
+    // Where every step sits now: one that's left out is gone from the plan
+    // by the time its fading is shown.
+    final before = Map.of(_controller.positions);
+    // Slower than an ordinary edit, so the moves can be followed.
+    _controller.travelResponse = 0.95;
+    final outcome = await showGlassSheet<ReplanOutcome>(
+      context,
+      (_) => ReplanSheet(backend: backend, classroom: room, plan: _plan),
+    );
+    if (outcome == null || !mounted) {
+      _controller.travelResponse = 0.42;
+      return;
+    }
+    _showNotice(
+      outcome.what.isEmpty ? 'Settings saved.' : 'Re-planned: ${outcome.what}.',
+    );
+    final moves = [...outcome.moves]..sort((a, b) => a.due.compareTo(b.due));
+    // Once the sheet has gone and the new dates have arrived.
+    await Future<void>.delayed(const Duration(milliseconds: 320));
+    if (!mounted) return;
+    _playChanges(
+      PlanChanges([
+        for (final m in moves)
+          StepChange(
+            id: m.step.id,
+            title: m.step.title,
+            fromDue: m.step.due,
+            toDue: m.due,
+            fromHours: m.step.estimateHours,
+            toHours: m.hours ?? m.step.estimateHours,
+          ),
+        for (final s in outcome.dropped)
+          StepChange(id: s.id, title: s.title, dropped: true, at: before[s.id]),
+      ]),
+    );
+  }
+
+  /// Plays a set of changes back on the graph, step by step, with the whole
+  /// plan in view. With motion turned down, nothing plays: the notice says it.
+  void _playChanges(PlanChanges changes) {
+    void settle() {
+      _controller.travelResponse = 0.42;
+      if (mounted && _changes == changes) setState(() => _changes = null);
+    }
+
+    if (changes.changes.isEmpty || MediaQuery.disableAnimationsOf(context)) {
+      settle();
+      return;
+    }
+    setState(() {
+      _view = PlanView.graph;
+      _changes = changes;
+    });
+    _camera.fit(fitPadding);
+    _changing.duration = changes.duration;
+    unawaited(_changing.forward(from: 0).whenComplete(settle));
+  }
+
   Future<void> _addStep() async {
     if (_plan.phases.isEmpty) {
       await _showPhases();
@@ -849,8 +992,337 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       ),
     );
     if (added == null || !mounted) return;
+    final twin = similarStep(_plan, added.title);
+    if (twin != null) {
+      final done = twin.status == StepStatus.done;
+      final phase =
+          _plan.phases
+              .where((ph) => ph.id == twin.phaseId)
+              .firstOrNull
+              ?.title ??
+          '';
+      final choice = await showGlassSheet<String>(
+        context,
+        (_) => ChoiceSheet<String>(
+          title: 'Already in the plan?',
+          message:
+              '“${twin.title}” in $phase seems to cover this already'
+              '${done ? ', and it’s done' : ''}'
+              '${twin.ownerId == _me ? '' : ' (${nameIn(_plan, twin.ownerId)}’s step)'}. '
+              '${done ? 'Do you want to do it again, or add a new step anyway?' : 'Open that step, or add a new one anyway?'}',
+          choices: [
+            if (done && _canEdit(twin.id))
+              ('Do “${twin.title}” again', 'reopen', true)
+            else
+              ('Open “${twin.title}”', 'open', true),
+            ('Add a new step anyway', 'add', false),
+            ('Cancel', 'cancel', false),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      switch (choice) {
+        case 'reopen':
+          _controller.setStatus(twin.id, StepStatus.todo);
+          _goTo(twin.id);
+          _showNotice('“${twin.title}” is open again');
+          return;
+        case 'open':
+          _goTo(twin.id);
+          return;
+        case 'add':
+          break;
+        default:
+          return;
+      }
+    }
     _controller.adopt(_plan.withSteps([..._plan.steps.values, added]));
     _showNotice('Added “${added.title}”');
+  }
+
+  /// Marks this person's own part of a test or check point done, or not.
+  /// The point is done once everyone's part is.
+  void _markPart(String stepId, bool done) {
+    final s = _plan.steps[stepId];
+    if (s == null || !s.participants.contains(_me)) return;
+    final doneBy = [
+      for (final u in s.doneBy)
+        if (u != _me) u,
+      if (done) _me,
+    ];
+    final next = s.copyWith(doneBy: doneBy);
+    _controller.adopt(
+      _plan.replacing(next.copyWith(status: next.sharedStatus)),
+    );
+    _showNotice(
+      done
+          ? (next.sharedStatus == StepStatus.done
+                ? 'Everyone’s part is done: “${s.title}” is finished'
+                : 'Your part of “${s.title}” is done')
+          : 'Your part of “${s.title}” is open again',
+    );
+  }
+
+  /// Keeps what this person ticked on their own checklist for a point.
+  void _saveTicks(String stepId, List<String> ticked) {
+    final s = _plan.steps[stepId];
+    if (s == null || !s.participants.contains(_me)) return;
+    _controller.adopt(
+      _plan.replacing(s.copyWith(ticks: {...s.ticks, _me: ticked})),
+    );
+    _showNotice('Checklist saved');
+  }
+
+  void _openPart(String stepId, [String? uid]) {
+    final backend = _backend;
+    final room = _room;
+    if (backend == null || room == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => MyPartSheet(
+          backend: backend,
+          classroom: room,
+          plan: _plan,
+          stepId: stepId,
+          uid: uid,
+          onMark: _markPart,
+          onSaveTicks: _saveTicks,
+        ),
+      ),
+    );
+  }
+
+  void _showPoints() {
+    final room = _room;
+    if (room == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => PointsSheet(
+          classroom: room,
+          plan: _plan,
+          onOpen: (id) {
+            final s = _plan.steps[id];
+            if (s != null && s.participants.contains(_me)) {
+              _openPart(id);
+            } else {
+              _goTo(id);
+            }
+          },
+          onAddPoints: _manages ? _addPoints : null,
+        ),
+      ),
+    );
+  }
+
+  /// Puts a test or check point after every phase that hasn't one, between
+  /// the people whose steps are in it; the next phase then waits for it.
+  void _addPoints() {
+    final room = _room;
+    final backend = _backend;
+    if (room == null || backend == null || !_manages) return;
+    final kind = switch (room.checking) {
+      'tests' => StepKind.test,
+      'both' => StepKind.both,
+      'none' => StepKind.check,
+      _ => StepKind.check,
+    };
+    String title(String phase) => switch (room.checking) {
+      'tests' => 'Mock test: $phase',
+      'both' => 'Mock test and check: $phase',
+      'checks' || 'none' => 'Check: $phase',
+      final other => '${other[0].toUpperCase()}${other.substring(1)}: $phase',
+    };
+    final steps = {for (final s in _plan.steps.values) s.id: s};
+    var added = 0;
+    for (var i = 0; i < _plan.phases.length; i++) {
+      final ph = _plan.phases[i];
+      final work = steps.values
+          .where((s) => s.phaseId == ph.id && !s.isPoint)
+          .toList();
+      if (work.isEmpty ||
+          steps.values.any((s) => s.phaseId == ph.id && s.isPoint)) {
+        continue;
+      }
+      final needed = {for (final s in work) ...s.dependsOn};
+      final ends = [
+        for (final s in work)
+          if (!needed.contains(s.id)) s,
+      ];
+      final last = work
+          .map((s) => s.due)
+          .reduce((a, b) => a.isAfter(b) ? a : b);
+      final day = DateTime(last.year, last.month, last.day + 1);
+      final id = backend.newId();
+      steps[id] = PlanStep(
+        id: id,
+        phaseId: ph.id,
+        ownerId: _me,
+        title: title(ph.title),
+        estimateHours: 1,
+        start: day,
+        due: day,
+        dependsOn: [for (final s in ends) s.id],
+        kind: kind,
+        participants: {for (final s in work) s.ownerId}.toList(),
+        order: work.length + 1,
+      );
+      added++;
+      if (i + 1 < _plan.phases.length) {
+        final ids = {for (final s in work) s.id};
+        final nextId = _plan.phases[i + 1].id;
+        final next = steps.values.where((s) => s.phaseId == nextId).toList();
+        final nextIds = {for (final s in next) s.id};
+        final linked = next.any((s) => s.dependsOn.any(ids.contains));
+        for (final s in next) {
+          final starts = !s.dependsOn.any(nextIds.contains);
+          if (s.dependsOn.any(ids.contains) || (!linked && starts)) {
+            steps[s.id] = s.copyWith(
+              dependsOn: [
+                for (final d in s.dependsOn)
+                  if (!ids.contains(d)) d,
+                id,
+              ],
+            );
+          }
+        }
+      }
+    }
+    if (added == 0) {
+      _showNotice('Every phase already has one');
+      return;
+    }
+    _controller.adopt(_plan.withSteps(steps.values));
+    _showNotice(
+      'Added $added ${added == 1 ? 'point' : 'points'}, one after each phase',
+    );
+  }
+
+  /// Steps in one phase with the same name, owned by different people: the
+  /// same work, better as one joint step between them.
+  List<List<PlanStep>> get _matching {
+    final groups = <String, List<PlanStep>>{};
+    for (final s in _plan.steps.values) {
+      if (s.shared) continue;
+      final name = s.title
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+          .trim();
+      if (name.isEmpty) continue;
+      (groups['${s.phaseId}|$name'] ??= []).add(s);
+    }
+    return [
+      for (final g in groups.values)
+        if ({for (final s in g) s.ownerId}.length > 1) g,
+    ];
+  }
+
+  /// Turns each set of matching steps into one joint step between the people
+  /// who had them. Each then marks their own part; it's done once all have.
+  void _combineMatching() {
+    final groups = _matching;
+    if (groups.isEmpty || !_manages) return;
+    final steps = {for (final s in _plan.steps.values) s.id: s};
+    for (final g in groups) {
+      g.sort((a, b) => a.order.compareTo(b.order));
+      final keep = g.first;
+      final gone = {for (final s in g.skip(1)) s.id};
+      final ids = {for (final s in g) s.id};
+      final people = {for (final s in g) s.ownerId}.toList();
+      final done = [
+        for (final s in g)
+          if (s.status == StepStatus.done) s.ownerId,
+      ];
+      final joint = keep.copyWith(
+        kind: StepKind.joint,
+        participants: people,
+        doneBy: {...done}.toList(),
+        dependsOn: {
+          for (final s in g)
+            for (final d in s.dependsOn)
+              if (!ids.contains(d)) d,
+        }.toList(),
+        due: g.map((s) => s.due).reduce((a, b) => a.isAfter(b) ? a : b),
+        estimateHours: g
+            .map((s) => s.estimateHours)
+            .reduce((a, b) => a > b ? a : b),
+      );
+      steps[keep.id] = joint.copyWith(status: joint.sharedStatus);
+      gone.forEach(steps.remove);
+      // Whatever needed any of them now needs the joint step, once.
+      for (final s in steps.values.toList()) {
+        if (!s.dependsOn.any(gone.contains)) continue;
+        steps[s.id] = s.copyWith(
+          dependsOn: {
+            for (final d in s.dependsOn) gone.contains(d) ? keep.id : d,
+          }.where((d) => d != s.id).toList(),
+        );
+      }
+    }
+    _controller.adopt(_plan.withSteps(steps.values));
+    _showNotice(
+      'Combined ${groups.length} '
+      '${groups.length == 1 ? 'pair of matching steps' : 'sets of matching steps'} '
+      'into joint steps',
+    );
+  }
+
+  void _showDone() {
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => DoneSheet(plan: _plan, onOpen: (s) => _goTo(s.id)),
+      ),
+    );
+  }
+
+  void _showDeleted() {
+    final backend = _backend;
+    if (backend == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => DeletedSheet(
+          backend: backend,
+          classroomId: _classroomId,
+          plan: _plan,
+        ),
+      ),
+    );
+  }
+
+  void _showRoles() {
+    final backend = _backend;
+    final room = _room;
+    if (backend == null || room == null) return;
+    unawaited(
+      showGlassSheet<bool>(
+        context,
+        (_) => RolesSheet(backend: backend, classroom: room, plan: _plan),
+      ).then((saved) {
+        if (saved == true && mounted) _showNotice('Roles saved');
+      }),
+    );
+  }
+
+  /// A person's round icon beside their lane: chat with them, or more.
+  void _memberTap(String uid) {
+    final backend = _backend;
+    final room = _room;
+    if (backend == null || room == null) return;
+    unawaited(
+      showGlassSheet<void>(
+        context,
+        (_) => MemberSheet(
+          backend: backend,
+          classroom: room,
+          plan: _plan,
+          uid: uid,
+          onChat: () => unawaited(_openChatWith([uid])),
+        ),
+      ),
+    );
   }
 
   Future<void> _editStep(PlanStep step) async {
@@ -871,8 +1343,240 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     if (mounted) setState(() {});
   }
 
+  // Ofy ----------------------------------------------------------------------
+
+  Ofy? _ofy;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.session != null) {
+      _ofy = OfyScope.maybeOf(context)?..enter(this, _ofyScreen);
+    }
+  }
+
+  /// The step named [name], as near as can be found.
+  PlanStep? _stepNamed(String? name) {
+    final want = (name ?? '').toLowerCase().trim();
+    if (want.isEmpty) return null;
+    final steps = _plan.steps.values.toList();
+    return steps.where((s) => s.title.toLowerCase() == want).firstOrNull ??
+        steps.where((s) => s.title.toLowerCase().contains(want)).firstOrNull ??
+        steps.where((s) => want.contains(s.title.toLowerCase())).firstOrNull;
+  }
+
+  String _day(DateTime d) => '${d.day}/${d.month}';
+
+  late final OfyScreen _ofyScreen = OfyScreen(
+    name: 'classroom',
+    summary: () {
+      final room = _room;
+      final me = _me;
+      final next = _plan.nextStepFor(me);
+      final lines = <String>[
+        'Classroom: ${room?.title ?? _plan.title}'
+            '${room == null ? '' : ' (${room.taskType.label}, ${room.individual ? 'just them' : 'a group'})'}.',
+        'Their role: ${_isMaster
+            ? 'master'
+            : _manages
+            ? 'co-master'
+            : 'member'}.',
+        'View: ${_view.name}.',
+        'People: ${_plan.members.map((m) => m.id == me ? '${m.name} (them)' : m.name).join(', ')}.',
+        if (next != null)
+          'Your next step: “${next.title}”, due ${_day(next.due)}.',
+        if (_selectedId != null && _plan.steps[_selectedId] != null)
+          'Open step: “${_plan.steps[_selectedId]!.title}”.',
+      ];
+      var count = 0;
+      for (final ph in _plan.phases) {
+        final steps = _plan.stepsIn(ph.id).toList();
+        lines.add('Phase ${ph.title}: ${steps.isEmpty ? 'no steps' : ''}');
+        for (final s in steps) {
+          if (++count > 40) break;
+          lines.add(
+            '  - ${s.title} (${_plan.member(s.ownerId).name}, '
+            '${_plan.standing(s).name}, due ${_day(s.due)})',
+          );
+        }
+      }
+      if (_plan.phases.isEmpty) lines.add('There are no phases or steps yet.');
+      return lines.join('\n');
+    },
+    actions: [
+      OfyAction(
+        id: 'open-my-step',
+        description: 'Open the person’s own next step',
+        run: (_) async {
+          final next =
+              _plan.nextStepFor(_me) ??
+              _plan.steps.values.where((s) => s.ownerId == _me).firstOrNull;
+          if (next == null) return 'You have no steps here yet.';
+          _goTo(next.id);
+          return 'Opened “${next.title}”.';
+        },
+      ),
+      OfyAction(
+        id: 'open-any-step',
+        description: 'Open someone else’s step',
+        run: (_) async {
+          final other =
+              _plan.steps.values.where((s) => s.ownerId != _me).firstOrNull ??
+              _plan.steps.values.firstOrNull;
+          if (other == null) return 'There are no steps yet.';
+          _goTo(other.id);
+          return 'Opened “${other.title}”.';
+        },
+      ),
+      OfyAction(
+        id: 'open-step',
+        description: 'Open a step by name',
+        params: const ['step'],
+        run: (args) async {
+          final step = _stepNamed(args['step']);
+          if (step == null) return 'There’s no step called “${args['step']}”.';
+          _goTo(step.id);
+          return 'Opened “${step.title}”.';
+        },
+      ),
+      OfyAction(
+        id: 'open-menu',
+        description:
+            'Open something from the classroom menu: Files, Class chat, '
+            'Private chats, Practice, Handovers, Important, Phases, Settings, '
+            'Activity, Shared boards, Members and invite code, Since you were away',
+        params: const ['item'],
+        run: (args) async {
+          final want = (args['item'] ?? '').toLowerCase().trim();
+          // Out of More first, so the page opens on its own.
+          Navigator.of(context).popUntil((r) => r is! PopupRoute);
+          for (final section in _menuSections()) {
+            for (final entry in section.entries) {
+              final label = entry.label.toLowerCase();
+              if (label == want ||
+                  label.startsWith(want) ||
+                  want.startsWith(label)) {
+                entry.onTap();
+                return 'Opened ${entry.label}.';
+              }
+            }
+          }
+          return 'There’s no $want here.';
+        },
+      ),
+      OfyAction(
+        id: 'show-more',
+        description: 'Open More, the classroom menu',
+        run: (_) async {
+          _showMore();
+          return 'Opened More.';
+        },
+      ),
+      OfyAction(
+        id: 'draft-plan',
+        description: 'Draft a plan, or add to the plan, with Ofy’s questions',
+        run: (_) async {
+          unawaited(_draftPlan());
+          return 'Opened the planner.';
+        },
+      ),
+      OfyAction(
+        id: 'add-step',
+        description: 'Add a step owned by the person, in the last phase',
+        params: const ['title'],
+        needsApproval: true,
+        run: (args) async {
+          final title = (args['title'] ?? '').trim();
+          if (title.isEmpty) return 'The step needs a name.';
+          if (_plan.phases.isEmpty) {
+            return 'Add a phase first, or ask me to draft a plan.';
+          }
+          final today = DateTime.now();
+          final step = PlanStep(
+            id: _backend!.newId(),
+            phaseId: _plan.phases.last.id,
+            ownerId: _me,
+            title: title,
+            estimateHours: 2,
+            start: DateTime(today.year, today.month, today.day),
+            due:
+                _room?.deadline ??
+                DateTime(today.year, today.month, today.day + 7),
+            order: _plan.stepsIn(_plan.phases.last.id).length + 1,
+          );
+          _controller.adopt(_plan.withSteps([..._plan.steps.values, step]));
+          _goTo(step.id);
+          return 'Added “$title” to ${_plan.phases.last.title}.';
+        },
+      ),
+      OfyAction(
+        id: 'start-step',
+        description: 'Start a step, marking it in progress',
+        params: const ['step'],
+        needsApproval: true,
+        run: (args) async {
+          final step = _stepNamed(args['step']) ?? _plan.nextStepFor(_me);
+          if (step == null) return 'I couldn’t find that step.';
+          if (!_canEdit(step.id)) {
+            return 'Only its owner or a master can start it.';
+          }
+          _controller.setStatus(step.id, StepStatus.doing);
+          return 'Started “${step.title}”.';
+        },
+      ),
+      OfyAction(
+        id: 'mark-done',
+        description: 'Mark a step done (it waits for approval if the classroom needs it)',
+        params: const ['step'],
+        needsApproval: true,
+        run: (args) async {
+          final step = _stepNamed(args['step']);
+          if (step == null) return 'There’s no step called “${args['step']}”.';
+          if (!_canEdit(step.id)) {
+            return 'Only its owner or a master can finish it.';
+          }
+          _markDone(step.id);
+          return 'Marked “${step.title}” done.';
+        },
+      ),
+      OfyAction(
+        id: 'switch-view',
+        description: 'Show the plan as the map (graph), Timeline or List',
+        params: const ['view'],
+        run: (args) async {
+          final want = (args['view'] ?? '').toLowerCase();
+          final view = want.contains('time')
+              ? PlanView.timeline
+              : want.contains('list')
+              ? PlanView.list
+              : PlanView.graph;
+          setState(() => _view = view);
+          return 'Showing the ${view.name}.';
+        },
+      ),
+      OfyAction(
+        id: 'toggle-theme',
+        description: 'Switch between the light and dark background',
+        run: (_) async {
+          final dark = Palette.of(context).brightness == Brightness.dark;
+          widget.onBrightnessChanged(dark ? Brightness.light : Brightness.dark);
+          return 'Switched the background.';
+        },
+      ),
+      OfyAction(
+        id: 'go-home',
+        description: 'Go back to the dashboard',
+        run: (_) async {
+          unawaited(Navigator.of(context).maybePop());
+          return 'Back to the dashboard.';
+        },
+      ),
+    ],
+  );
+
   @override
   void dispose() {
+    _ofy?.leave(this);
     _noticeTimer?.cancel();
     _sync?.dispose();
     unawaited(_feed?.cancel());
@@ -886,6 +1590,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     _camera.dispose();
     _focus.dispose();
     _celebration.dispose();
+    _changing.dispose();
     super.dispose();
   }
 
@@ -1000,14 +1705,20 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   /// Switches between the white and dark backgrounds, in every view.
   Widget _themeButton({double height = 44}) {
     final dark = Palette.of(context).brightness == Brightness.dark;
-    return PressButton(
-      label: dark ? 'Switch to white background' : 'Switch to dark background',
-      icon: dark ? CupertinoIcons.sun_max : CupertinoIcons.moon,
-      iconOnly: true,
-      quiet: true,
-      height: height,
-      onTap: () =>
-          widget.onBrightnessChanged(dark ? Brightness.light : Brightness.dark),
+    return OfyTarget(
+      id: 'theme',
+      child: PressButton(
+        label: dark
+            ? 'Switch to white background'
+            : 'Switch to dark background',
+        icon: dark ? CupertinoIcons.sun_max : CupertinoIcons.moon,
+        iconOnly: true,
+        quiet: true,
+        height: height,
+        onTap: () => widget.onBrightnessChanged(
+          dark ? Brightness.light : Brightness.dark,
+        ),
+      ),
     );
   }
 
@@ -1258,6 +1969,15 @@ class _ClassroomScreenState extends State<ClassroomScreen>
   void _markDone(String id) {
     final step = _plan.steps[id];
     if (step == null) return;
+    // A shared point: only this person's own part.
+    if (step.shared && widget.session != null) {
+      if (step.participants.contains(_me)) {
+        _markPart(id, !step.doneFor(_me));
+      } else {
+        _showNotice('Each person in it marks their own part done.');
+      }
+      return;
+    }
     if (!_canEdit(id)) {
       _showNotice(
         'Only ${_plan.member(step.ownerId).name} or the master can '
@@ -1648,6 +2368,33 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           ),
         if (live)
           MenuEntry(
+            _plan.steps.isEmpty
+                ? 'Draft a plan with Ofy'
+                : 'Add to the plan with Ofy',
+            CupertinoIcons.sparkles,
+            () => unawaited(_draftPlan()),
+            colour: p.accentViolet,
+          ),
+        if (live && _plan.steps.values.any((s) => s.status != StepStatus.done))
+          MenuEntry(
+            'Re-plan',
+            CupertinoIcons.arrow_2_circlepath,
+            () => unawaited(_replan()),
+            colour: p.accentWarm,
+            count: _plan.steps.values
+                .where((s) => _plan.isOverdue(s) && _canEdit(s.id))
+                .length,
+          ),
+        if (_manages && _matching.isNotEmpty)
+          MenuEntry(
+            'Combine matching steps',
+            CupertinoIcons.arrow_merge,
+            _combineMatching,
+            colour: p.accentTeal,
+            count: _matching.length,
+          ),
+        if (live)
+          MenuEntry(
             'Files',
             CupertinoIcons.folder,
             _showFiles,
@@ -1674,6 +2421,41 @@ class _ClassroomScreenState extends State<ClassroomScreen>
             _showActivity,
             colour: p.accent,
           ),
+        if (live && (_room?.checkLabel ?? '').isNotEmpty)
+          MenuEntry(
+            _room!.checkLabel,
+            CupertinoIcons.doc_checkmark,
+            _showPoints,
+            colour: p.accentViolet,
+            count: _plan.steps.values
+                .where(
+                  (s) =>
+                      s.isPoint &&
+                      s.participants.contains(_me) &&
+                      !s.doneFor(_me) &&
+                      _plan.standing(s) != Standing.waiting,
+                )
+                .length,
+          ),
+        MenuEntry(
+          'Add to calendar',
+          CupertinoIcons.calendar_badge_plus,
+          _showCalendar,
+          colour: p.accentWarm,
+        ),
+        MenuEntry(
+          'Done',
+          CupertinoIcons.checkmark_seal,
+          _showDone,
+          colour: p.done,
+        ),
+        if (live)
+          MenuEntry(
+            'Deleted',
+            CupertinoIcons.trash,
+            _showDeleted,
+            colour: p.inkSoft,
+          ),
       ]),
       MenuSection('Classroom', [
         if (!individual)
@@ -1682,6 +2464,20 @@ class _ClassroomScreenState extends State<ClassroomScreen>
             CupertinoIcons.person_crop_circle_badge_plus,
             _showMembers,
             colour: p.done,
+          ),
+        if (live && !individual)
+          MenuEntry(
+            'Roles',
+            CupertinoIcons.person_2_square_stack,
+            _showRoles,
+            colour: p.accentViolet,
+          ),
+        if (live && !individual && _manages && _plan.members.length > 1)
+          MenuEntry(
+            'Share out by skills',
+            CupertinoIcons.arrow_right_arrow_left,
+            () => unawaited(_shareOut()),
+            colour: p.accentTeal,
           ),
         if (_isMaster)
           MenuEntry(
@@ -1719,7 +2515,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
               style: TypeRamp.title(p.ink),
             ),
           ),
-          const SizedBox(width: 12),
+          const OfyTarget(id: 'classroom:views', child: SizedBox(width: 12)),
           SizedBox(
             width: 264,
             child: CupertinoSlidingSegmentedControl<PlanView>(
@@ -1946,7 +2742,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const OfyTarget(id: 'classroom:views', child: SizedBox(width: 8)),
           SizedBox(
             width: 138,
             child: CupertinoSlidingSegmentedControl<PlanView>(
@@ -2007,15 +2803,18 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           ),
           _keyButton(44),
           if (widget.session != null) ...[
-            CountBadge(
-              count: _moreCount,
-              child: PressButton(
-                label: _moreCount > 0 ? 'More, $_moreCount new' : 'More',
-                icon: CupertinoIcons.ellipsis_circle,
-                iconOnly: true,
-                quiet: true,
-                height: 44,
-                onTap: _showMore,
+            OfyTarget(
+              id: 'classroom:more',
+              child: CountBadge(
+                count: _moreCount,
+                child: PressButton(
+                  label: _moreCount > 0 ? 'More, $_moreCount new' : 'More',
+                  icon: CupertinoIcons.ellipsis_circle,
+                  iconOnly: true,
+                  quiet: true,
+                  height: 44,
+                  onTap: _showMore,
+                ),
               ),
             ),
             PressButton(
@@ -2050,39 +2849,43 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       bool selected,
       VoidCallback onTap, {
       int count = 0,
+      String? target,
     }) => Expanded(
-      child: Semantics(
-        button: true,
-        selected: selected,
-        label: count > 0 ? '$label, $count new' : label,
-        excludeSemantics: true,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            HapticFeedback.selectionClick();
-            onTap();
-          },
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CountBadge(
-                count: count,
-                child: Icon(
-                  icon,
-                  size: 20,
-                  color: selected ? p.ink : p.inkSoft,
+      child: OfyTarget(
+        id: target ?? 'tab:$label',
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: count > 0 ? '$label, $count new' : label,
+          excludeSemantics: true,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CountBadge(
+                  count: count,
+                  child: Icon(
+                    icon,
+                    size: 20,
+                    color: selected ? p.ink : p.inkSoft,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                label,
-                maxLines: 1,
-                textScaler: MediaQuery.textScalerOf(context)
-                    .clamp(maxScaleFactor: 1.15),
-                style: TypeRamp.caption(selected ? p.ink : p.inkSoft)
-                    .copyWith(fontSize: 11),
-              ),
-            ],
+                const SizedBox(height: 1),
+                Text(
+                  label,
+                  maxLines: 1,
+                  textScaler: MediaQuery.textScalerOf(context)
+                      .clamp(maxScaleFactor: 1.15),
+                  style: TypeRamp.caption(selected ? p.ink : p.inkSoft)
+                      .copyWith(fontSize: 11),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2125,6 +2928,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
                     icon,
                     _view == view,
                     () => setState(() => _view = view),
+                    target: 'classroom:views',
                   ),
                 if (session) ...[
                   tab(
@@ -2133,6 +2937,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
                     false,
                     _showMore,
                     count: _moreCount,
+                    target: 'classroom:more',
                   ),
                   tab(
                     'Profile',
@@ -2293,6 +3098,12 @@ class _ClassroomScreenState extends State<ClassroomScreen>
               ),
             ),
             if (_view == PlanView.graph && _plan.steps.isNotEmpty) ...[
+              if (!short && _activeEdge == null)
+                Positioned(
+                  left: gutterEnd + 10,
+                  top: stripEnd + 8,
+                  child: InProgressTab(plan: _plan, onOpen: (id) => _goTo(id)),
+                ),
               if (!short && (_activeEdge == null || showMap))
                 _buildNextCard(p, phone, panelOpen, shell, stripEnd),
               if (_activeEdge != null)
@@ -2392,10 +3203,10 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       return const Center(child: CupertinoActivityIndicator());
     } else if (_plan.phases.isEmpty) {
       text = _manages
-          ? 'Start with the big stages of the work. Add them as phases, then '
-                'fill each with steps.'
+          ? 'Let Ofy draft the phases and steps from your task, or add the big '
+                'stages yourself as phases, then fill each with steps.'
           : 'The master hasn’t added any phases yet.';
-      action = _manages ? 'Add phases' : null;
+      action = _manages ? 'Add phases myself' : null;
     } else {
       text = 'No steps yet. Add what needs doing, who’s doing it and when.';
       action = 'Add a step';
@@ -2417,11 +3228,22 @@ class _ClassroomScreenState extends State<ClassroomScreen>
                   textAlign: TextAlign.center,
                   style: TypeRamp.body(p.ink),
                 ),
-                if (action != null) ...[
+                if (_manages) ...[
                   const SizedBox(height: 14),
                   PressButton(
-                    label: action,
+                    label: 'Draft a plan with Ofy',
+                    icon: CupertinoIcons.sparkles,
                     prominent: true,
+                    height: 44,
+                    expand: true,
+                    onTap: _draftPlan,
+                  ),
+                ],
+                if (action != null) ...[
+                  SizedBox(height: _manages ? 8 : 14),
+                  PressButton(
+                    label: action,
+                    prominent: !_manages,
                     height: 44,
                     expand: true,
                     onTap: _plan.phases.isEmpty ? _showPhases : _addStep,
@@ -2440,61 +3262,72 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       TargetPlatform.android || TargetPlatform.iOS => true,
       _ => narrow,
     };
-    return StepPanel(
-      plan: _plan,
-      step: step,
-      touch: touch,
-      header: header,
-      onClose: () => _select(null),
-      onMarkDone: () => _markDone(step.id),
-      onStart: () => _controller.setStatus(step.id, StepStatus.doing),
-      onReopen: () => _controller.setStatus(step.id, StepStatus.todo),
-      onHandOver: (ownerId) {
-        if (ownerId == step.ownerId || !_canEdit(step.id)) return;
-        // In a classroom, your own step goes by request; the master and
-        // co-masters can still move anyone else's.
-        if (widget.session != null && step.ownerId == _me) {
-          unawaited(_requestHandover(step.id, ownerId));
-          return;
-        }
-        _controller.handOver(step.id, ownerId);
-        _showNotice('Handed to ${_plan.member(ownerId).name}');
-      },
-      onOpenStep: _goTo,
-      onRemoveDependency: (id) => _controller.removeDependency(step.id, id),
-      onToggleChecklist: (i) => _controller.toggleChecklist(step.id, i),
-      onDelete: () => _delete(step.id),
-      editable: widget.session == null || _canEdit(step.id),
-      approvals: _room?.approvalRequired ?? false,
-      canApprove: _room != null && _manages,
-      onApprove: () => _controller.setStatus(step.id, StepStatus.done),
-      onSendBack: () => _controller.setStatus(step.id, StepStatus.doing),
-      onEdit: widget.session == null ? null : () => _editStep(step),
-      onAddDependency: widget.session == null || step.ownerId != _me
-          ? null
-          : () => _pickNeed(step),
-      showNeeds: widget.session == null || step.ownerId == _me,
-      onSaveDescription: step.ownerId == _me
-          ? (text) {
-              _controller.adopt(
-                _plan.replacing(step.copyWith(description: text)),
-              );
-              _showNotice('Description saved');
-            }
-          : null,
-      collab: _backend == null
-          ? null
-          : StepCollab(
-              key: ValueKey('collab-${step.id}'),
-              backend: _backend!,
-              classroomId: _classroomId,
-              plan: _plan,
-              step: step,
-              canManage: _manages,
-              onNotice: _showNotice,
-              masterUid: _room?.masterUid ?? '',
-              classroomTitle: _room?.title ?? '',
-            ),
+    return OfyTarget(
+      id: 'step:panel',
+      child: StepPanel(
+        plan: _plan,
+        step: step,
+        touch: touch,
+        header: header,
+        onClose: () => _select(null),
+        onMarkDone: () => _markDone(step.id),
+        onStart: () => _controller.setStatus(step.id, StepStatus.doing),
+        onReopen: () => _controller.setStatus(step.id, StepStatus.todo),
+        onHandOver: (ownerId) {
+          if (ownerId == step.ownerId || !_canEdit(step.id)) return;
+          // In a classroom, your own step goes by request; the master and
+          // co-masters can still move anyone else's.
+          if (widget.session != null && step.ownerId == _me) {
+            unawaited(_requestHandover(step.id, ownerId));
+            return;
+          }
+          _controller.handOver(step.id, ownerId);
+          _showNotice('Handed to ${_plan.member(ownerId).name}');
+        },
+        onOpenStep: _goTo,
+        onRemoveDependency: (id) => _controller.removeDependency(step.id, id),
+        onToggleChecklist: (i) => _controller.toggleChecklist(step.id, i),
+        onDelete: () => _delete(step.id),
+        onCalendar: () => _showCalendar(stepId: step.id),
+        sharedPart: step.shared && widget.session != null
+            ? SharedPartPanel(
+                plan: _plan,
+                step: step,
+                onOpenPart: (u) => _openPart(step.id, u),
+              )
+            : null,
+        editable: widget.session == null || _canEdit(step.id),
+        approvals: _room?.approvalRequired ?? false,
+        canApprove: _room != null && _manages,
+        onApprove: () => _controller.setStatus(step.id, StepStatus.done),
+        onSendBack: () => _controller.setStatus(step.id, StepStatus.doing),
+        onEdit: widget.session == null ? null : () => _editStep(step),
+        onAddDependency: widget.session == null || step.ownerId != _me
+            ? null
+            : () => _pickNeed(step),
+        showNeeds: widget.session == null || step.ownerId == _me,
+        onSaveDescription: step.ownerId == _me
+            ? (text) {
+                _controller.adopt(
+                  _plan.replacing(step.copyWith(description: text)),
+                );
+                _showNotice('Description saved');
+              }
+            : null,
+        collab: _backend == null
+            ? null
+            : StepCollab(
+                key: ValueKey('collab-${step.id}'),
+                backend: _backend!,
+                classroomId: _classroomId,
+                plan: _plan,
+                step: step,
+                canManage: _manages,
+                onNotice: _showNotice,
+                masterUid: _room?.masterUid ?? '',
+                classroomTitle: _room?.title ?? '',
+              ),
+      ),
     );
   }
 
@@ -2518,6 +3351,8 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           focus: _focus,
           celebration: _celebration,
           celebrateId: _celebrateId,
+          changes: _changes,
+          changing: _changing,
           selectedId: _selectedId,
           linkFromId: _linkFromId,
           selectedEdge: _activeEdge,
@@ -2546,9 +3381,7 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           onFitPhase: _fitPhase,
           onToggleDirection: _toggleDirection,
           canEdit: widget.session == null ? null : _canEdit,
-          onMemberTap: widget.session == null
-              ? null
-              : (uid) => unawaited(_openChatWith([uid])),
+          onMemberTap: widget.session == null ? null : _memberTap,
           onRequestHandover: widget.session == null || _manages
               ? null
               : (id, to) => unawaited(_requestHandover(id, to)),
@@ -2655,18 +3488,19 @@ class _ClassroomScreenState extends State<ClassroomScreen>
       child: GestureDetector(
         onTap: next == null ? null : () => _goTo(next.id),
         child: GlassPanel(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+          radius: 18,
+          padding: const EdgeInsets.fromLTRB(12, 9, 12, 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (next != null) ...[
                 Container(
-                  width: 20,
-                  height: 20,
-                  margin: const EdgeInsets.only(top: 3, right: 10),
+                  width: 14,
+                  height: 14,
+                  margin: const EdgeInsets.only(top: 2, right: 8),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: p.route, width: 4),
+                    border: Border.all(color: p.route, width: 3),
                   ),
                 ),
               ],
@@ -2677,15 +3511,17 @@ class _ClassroomScreenState extends State<ClassroomScreen>
                   children: [
                     Text(
                       title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TypeRamp.label(p.ink).weighted(FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      line,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: narrow
-                          ? TypeRamp.title(p.ink)
-                          : TypeRamp.title(p.ink)
-                                .copyWith(fontSize: 25, letterSpacing: -0.6),
+                      style: TypeRamp.caption(p.inkSoft),
                     ),
-                    const SizedBox(height: 3),
-                    Text(line, style: TypeRamp.label(p.inkSoft)),
                   ],
                 ),
               ),
@@ -2749,15 +3585,15 @@ class _ClassroomScreenState extends State<ClassroomScreen>
         ),
       );
     }
-    final top = stripEnd + 12;
+    final top = stripEnd + 8;
     final right = shell.right + 6;
     return Positioned(
       top: top,
       right: right,
-      width: 320,
+      width: 250,
       child: _clearOfNextStep(
         next,
-        (v) => Rect.fromLTWH(v.width - right - 320, top, 320, 112),
+        (v) => Rect.fromLTWH(v.width - right - 250, top, 250, 72),
         panelOpen,
         card,
       ),
@@ -2775,13 +3611,16 @@ class _ClassroomScreenState extends State<ClassroomScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             if (widget.session != null)
-              PressButton(
-                label: 'Add a step',
-                icon: CupertinoIcons.plus,
-                iconOnly: true,
-                quiet: true,
-                height: 44,
-                onTap: _addStep,
+              OfyTarget(
+                id: 'classroom:add-step',
+                child: PressButton(
+                  label: 'Add a step',
+                  icon: CupertinoIcons.plus,
+                  iconOnly: true,
+                  quiet: true,
+                  height: 44,
+                  onTap: _addStep,
+                ),
               ),
             PressButton(
               label: 'Show the whole plan',
@@ -2814,24 +3653,39 @@ class _ClassroomScreenState extends State<ClassroomScreen>
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
-      right: panelOpen ? _panelWidth + 20 : shell.right + 6,
+      right: panelOpen ? _panelWidth + 20 : shell.right + 70,
       bottom: shell.bottom + 6,
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
         children: [
+          if (_mapShown) ...[
+            GlassPanel(
+              radius: 16,
+              child: Minimap(
+                controller: _controller,
+                camera: _camera,
+                size: const Size(140, 80),
+              ),
+            ),
+            const SizedBox(height: 6),
+          ],
           GlassPanel(
             radius: 18,
-            child: Column(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (widget.session != null)
-                  PressButton(
-                    label: 'Add a step',
-                    icon: CupertinoIcons.plus_circle,
-                    iconOnly: true,
-                    quiet: true,
-                    height: 36,
-                    onTap: _addStep,
+                  OfyTarget(
+                    id: 'classroom:add-step',
+                    child: PressButton(
+                      label: 'Add a step',
+                      icon: CupertinoIcons.plus_circle,
+                      iconOnly: true,
+                      quiet: true,
+                      height: 36,
+                      onTap: _addStep,
+                    ),
                   ),
                 PressButton(
                   label: 'Zoom in',
@@ -2858,18 +3712,25 @@ class _ClassroomScreenState extends State<ClassroomScreen>
                   onTap: () => _camera.fit(fitPadding),
                 ),
                 _keyButton(36),
+                PressButton(
+                  label: _mapShown ? 'Hide the minimap' : 'Show the minimap',
+                  icon: CupertinoIcons.map,
+                  iconOnly: true,
+                  quiet: !_mapShown,
+                  selected: _mapShown,
+                  height: 36,
+                  onTap: () => setState(() => _mapShown = !_mapShown),
+                ),
               ],
             ),
-          ),
-          const SizedBox(width: 8),
-          GlassPanel(
-            radius: 18,
-            child: Minimap(controller: _controller, camera: _camera),
           ),
         ],
       ),
     );
   }
+
+  /// Whether the small overview of the whole plan shows above the controls.
+  var _mapShown = false;
 
   /// Names both ends of the tapped arrow. Either may be off screen in a big
   /// plan, so each name takes you there.

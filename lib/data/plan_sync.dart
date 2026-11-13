@@ -76,6 +76,10 @@ class PlanSync {
   var _disposed = false;
   Set<String> _changed = const {};
 
+  /// Steps deleted here whose delete hasn't reached the stored copy yet. An
+  /// update arriving in between mustn't bring them back.
+  final Set<String> _deleting = {};
+
   /// Marks steps with a badge until the classroom is next opened.
   void showChanged(Set<String> ids) {
     _changed = ids;
@@ -87,7 +91,12 @@ class PlanSync {
   }
 
   Plan _planFor(ClassroomState state) {
-    final plan = planFrom(state, _me, DateTime.now());
+    var plan = planFrom(state, _me, DateTime.now());
+    if (_deleting.isNotEmpty) {
+      plan = plan.withSteps(
+        plan.steps.values.where((s) => !_deleting.contains(s.id)),
+      );
+    }
     if (_changed.isEmpty) return plan;
     return plan.withSteps(
       plan.steps.values.map(
@@ -105,7 +114,12 @@ class PlanSync {
     if (_disposed) return;
     final first = _state == null;
     _state = state;
-    _stored = {for (final s in state.steps) s.id: s};
+    // Once the stored copy no longer has a step, its delete has landed.
+    _deleting.removeWhere((id) => !state.steps.any((s) => s.id == id));
+    _stored = {
+      for (final s in state.steps)
+        if (!_deleting.contains(s.id)) s.id: s,
+    };
     final next = _planFor(state);
     _applying = true;
     if (first) {
@@ -145,6 +159,8 @@ class PlanSync {
   }
 
   void _send(PlanStep step, PlanStep? before) {
+    // Brought back, as by Undo: no longer on its way out.
+    _deleting.remove(step.id);
     _stored = {..._stored, step.id: step};
     _guard(backend.saveStep(classroomId, step));
     final entry = describeChange(
@@ -159,7 +175,14 @@ class PlanSync {
 
   void _remove(PlanStep step) {
     _stored = {..._stored}..remove(step.id);
-    _guard(backend.deleteStep(classroomId, step.id));
+    _deleting.add(step.id);
+    _guard(
+      backend.deleteStep(classroomId, step.id).catchError((Object e) {
+        // Refused: it really is still there, so show it again.
+        _deleting.remove(step.id);
+        throw e;
+      }),
+    );
     _guard(
       backend.logActivity(
         classroomId,

@@ -6,12 +6,15 @@ import 'package:url_launcher/url_launcher.dart';
 import '../data/backend.dart';
 import '../data/models.dart';
 import '../model/plan.dart';
+import '../ofy/ofy.dart';
 import '../theme/tokens.dart';
 import '../widgets/controls.dart';
 import '../kanvas/kanvas_home.dart';
 import '../kanvas/kanvas_model.dart';
 import 'classroom_forms.dart';
 import 'files_sheet.dart';
+import 'step_panel.dart';
+import 'resource_finder.dart';
 
 /// A person's name in this plan, or a plain stand-in once they've left.
 String nameIn(Plan plan, String uid) =>
@@ -439,13 +442,7 @@ class _StepCollabState extends State<StepCollab> {
     final p = Palette.of(context);
     final now = DateTime.now();
 
-    Widget label(String text) => Padding(
-      padding: const EdgeInsets.only(top: 22, bottom: 8),
-      child: Semantics(
-        header: true,
-        child: Text(text, style: TypeRamp.label(p.inkSoft)),
-      ),
-    );
+    Widget label(String text) => StepSectionTitle(text);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -584,14 +581,45 @@ class _StepCollabState extends State<StepCollab> {
                           : null,
                     ),
                   const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: PressButton(
-                      label: 'Add material',
-                      icon: CupertinoIcons.plus,
-                      quiet: true,
-                      onTap: _addMaterial,
-                    ),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      OfyTarget(
+                        id: 'step:add-material',
+                        child: PressButton(
+                          label: 'Add material',
+                          icon: CupertinoIcons.plus,
+                          quiet: true,
+                          onTap: _addMaterial,
+                        ),
+                      ),
+                      OfyTarget(
+                        id: 'step:find-material',
+                        child: PressButton(
+                          label: 'Find with Ofy',
+                          icon: CupertinoIcons.sparkles,
+                          quiet: true,
+                          onTap: () => unawaited(
+                            showGlassSheet<int>(
+                              context,
+                              (_) => ResourceFinderSheet(
+                                backend: widget.backend,
+                                classroomId: widget.classroomId,
+                                subject: widget.classroomTitle.isEmpty
+                                    ? widget.plan.title
+                                    : widget.classroomTitle,
+                                step: _step,
+                                have: [
+                                  for (final m in here)
+                                    if (m.url.isNotEmpty) m.url,
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   Text(
                     'Only you can see your study materials.',
@@ -644,11 +672,14 @@ class _StepCollabState extends State<StepCollab> {
                 if (!_mine)
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: PressButton(
-                      label: 'Suggest a change',
-                      icon: CupertinoIcons.lightbulb,
-                      quiet: true,
-                      onTap: _suggest,
+                    child: OfyTarget(
+                      id: 'step:suggest',
+                      child: PressButton(
+                        label: 'Suggest a change',
+                        icon: CupertinoIcons.lightbulb,
+                        quiet: true,
+                        onTap: _suggest,
+                      ),
                     ),
                   ),
               ],
@@ -685,18 +716,10 @@ class _StepCollabState extends State<StepCollab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 22, bottom: 4),
-          child: Semantics(
-            header: true,
-            child: Text(
-              _mine
-                  ? 'Private comments'
-                  : 'Private comments with '
-                        '${nameIn(widget.plan, owner)}',
-              style: TypeRamp.label(p.inkSoft),
-            ),
-          ),
+        StepSectionTitle(
+          _mine
+              ? 'Private comments'
+              : 'Private comments with ${nameIn(widget.plan, owner)}',
         ),
         Padding(
           padding: const EdgeInsets.only(bottom: 10),

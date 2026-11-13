@@ -46,7 +46,10 @@ class ChatsSheet extends StatelessWidget {
     return StreamBuilder<List<ChatThread>>(
       stream: backend.threads(classroomId),
       builder: (context, snap) {
-        final threads = snap.data ?? const <ChatThread>[];
+        final threads = [
+          for (final t in snap.data ?? const <ChatThread>[])
+            if (!t.hiddenFor(plan.meId)) t,
+        ];
         return SheetFrame(
           title: 'Private chats',
           action: PressButton(
@@ -345,6 +348,21 @@ class _ThreadSheetState extends State<ThreadSheet> {
     }
   }
 
+  /// Takes the chat out of this person's lists, into Deleted. The others in
+  /// it keep it; starting it again brings it back.
+  Future<void> _delete() async {
+    try {
+      await widget.backend.hideThread(
+        widget.classroomId,
+        widget.threadId,
+        true,
+      );
+      if (mounted) Navigator.of(context).pop();
+    } on BackendFailure catch (e) {
+      if (mounted) setState(() => _message = e.message);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = Palette.of(context);
@@ -378,6 +396,14 @@ class _ThreadSheetState extends State<ThreadSheet> {
                       style: TypeRamp.title(p.ink),
                     ),
                   ),
+                ),
+                PressButton(
+                  label: 'Delete this chat',
+                  icon: CupertinoIcons.trash,
+                  iconOnly: true,
+                  quiet: true,
+                  height: 44,
+                  onTap: _delete,
                 ),
                 PressButton(
                   label: 'Close',

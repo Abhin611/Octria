@@ -3,6 +3,8 @@ library;
 
 import 'dart:math' as math;
 
+import '../model/plan.dart';
+
 /// The most people a classroom can hold.
 const int kMaxMembers = 10;
 
@@ -13,6 +15,7 @@ class AppUser {
     this.email = '',
     this.photoUrl = '',
     this.bio = '',
+    this.skills = const [],
   });
 
   final String uid;
@@ -21,13 +24,19 @@ class AppUser {
   final String photoUrl;
   final String bio;
 
-  AppUser copyWith({String? name, String? bio}) => AppUser(
-    uid: uid,
-    name: name ?? this.name,
-    email: email,
-    photoUrl: photoUrl,
-    bio: bio ?? this.bio,
-  );
+  /// What they're good at, in their own words, such as "Flutter". Ofy uses
+  /// it to share work out. Anyone signed in can read it.
+  final List<String> skills;
+
+  AppUser copyWith({String? name, String? bio, List<String>? skills}) =>
+      AppUser(
+        uid: uid,
+        name: name ?? this.name,
+        email: email,
+        photoUrl: photoUrl,
+        bio: bio ?? this.bio,
+        skills: skills ?? this.skills,
+      );
 }
 
 enum TaskType {
@@ -65,11 +74,45 @@ class Classroom {
     this.hoursPerWeek,
     this.approvalRequired = false,
     this.joinApprovalRequired = false,
+    this.linked = false,
+    this.roles = const {},
+    this.checkKind = '',
   });
+
+  /// How the group checks its progress after each phase: `tests` (mock
+  /// tests), `checks` (checklists), `both`, `none`, or the person's own word.
+  /// Empty means it hasn't been chosen, and the kind of task decides.
+  final String checkKind;
+
+  /// [checkKind], or what suits the kind of task when none was chosen.
+  String get checking => checkKind.isNotEmpty
+      ? checkKind
+      : switch (taskType) {
+          TaskType.study || TaskType.research => 'tests',
+          TaskType.build || TaskType.eventOrCreative => 'checks',
+          TaskType.other => 'checks',
+        };
+
+  /// What the point after each phase is called, for its tab.
+  String get checkLabel => switch (checking) {
+    'tests' => 'Mock tests',
+    'checks' => 'Checklists',
+    'both' => 'Mock tests and checks',
+    'none' => '',
+    final other => other,
+  };
 
   final String id;
   final String title;
   final String description;
+
+  /// For a group: whether its people work together, each learning or doing a
+  /// part and then sharing it with the others (a study group), rather than
+  /// each following their own steps. Ofy plans joint steps when they do.
+  final bool linked;
+
+  /// What each person does, by uid, such as "Front end". Set by the master.
+  final Map<String, String> roles;
 
   /// What the plan must respect, in the person's own words, such as "study
   /// thermodynamics before waves". Optional. The AI planner reads it.
@@ -106,6 +149,9 @@ class Classroom {
     bool? joinApprovalRequired,
     DateTime? deadline,
     double? hoursPerWeek,
+    bool? linked,
+    Map<String, String>? roles,
+    String? checkKind,
   }) => Classroom(
     id: id,
     title: title ?? this.title,
@@ -122,6 +168,9 @@ class Classroom {
     approvalRequired: approvalRequired ?? this.approvalRequired,
     joinApprovalRequired: joinApprovalRequired ?? this.joinApprovalRequired,
     createdAt: createdAt,
+    linked: linked ?? this.linked,
+    roles: roles ?? this.roles,
+    checkKind: checkKind ?? this.checkKind,
   );
 }
 
@@ -155,7 +204,7 @@ class JoinRequest {
 }
 
 /// Shown in the profile, so anyone can tell which version they're running.
-const String kAppVersion = '0.7.1';
+const String kAppVersion = '0.15.1';
 
 /// Where the app lives on the web, for invite links.
 const String kAppUrl = String.fromEnvironment(
@@ -486,10 +535,33 @@ class ChatThread {
     this.lastText = '',
     this.lastBy = '',
     this.readAt = const {},
+    this.hiddenBy = const [],
   });
 
   final String id;
   final List<String> participants;
+
+  /// People who deleted this chat from their lists. It stays in their
+  /// Deleted chats, ready to bring back, and everyone else still has it.
+  final List<String> hiddenBy;
+
+  bool hiddenFor(String uid) => hiddenBy.contains(uid);
+
+  ChatThread copyWith({
+    DateTime? lastAt,
+    String? lastText,
+    String? lastBy,
+    Map<String, DateTime>? readAt,
+    List<String>? hiddenBy,
+  }) => ChatThread(
+    id: id,
+    participants: participants,
+    lastAt: lastAt ?? this.lastAt,
+    lastText: lastText ?? this.lastText,
+    lastBy: lastBy ?? this.lastBy,
+    readAt: readAt ?? this.readAt,
+    hiddenBy: hiddenBy ?? this.hiddenBy,
+  );
   final DateTime? lastAt;
   final String lastText;
   final String lastBy;
@@ -509,6 +581,87 @@ class ChatThread {
     final pair = [a, b]..sort();
     return 'dm_${pair[0]}_${pair[1]}';
   }
+}
+
+/// One practice set or mock test someone finished: what it covered and how it
+/// went. Private to the person who took it.
+class TestResult {
+  const TestResult({
+    required this.id,
+    required this.classroomId,
+    required this.label,
+    required this.right,
+    required this.total,
+    required this.at,
+    this.targetId = '',
+    this.mock = false,
+    this.missed = const [],
+    this.level = '',
+    this.interview = false,
+  });
+
+  /// `easy` or `hard`; empty for the usual level.
+  final String level;
+
+  /// A mock interview, answered in the person's own words and marked by Ofy.
+  final bool interview;
+
+  /// What kind of test it was, for lists.
+  String get kindLabel => [
+    interview ? 'Mock interview' : (mock ? 'Mock test' : 'Practice'),
+    if (level == 'easy') 'easier',
+    if (level == 'hard') 'harder',
+  ].join(', ');
+
+  final String id;
+  final String classroomId;
+
+  /// What it was on, as shown above the questions.
+  final String label;
+
+  /// The step, phase or point it covered; empty for the whole plan.
+  final String targetId;
+  final int right;
+  final int total;
+
+  /// A mock test rather than practice.
+  final bool mock;
+
+  /// The questions they got wrong, to look at again.
+  final List<String> missed;
+  final DateTime at;
+
+  /// From 0 to 1.
+  double get score => total == 0 ? 0 : right / total;
+  int get percent => (score * 100).round();
+}
+
+enum TrashKind { step, phase }
+
+/// A deleted step, or a deleted phase with the steps that were in it, kept so
+/// it can be brought back.
+class TrashItem {
+  const TrashItem({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.deletedBy,
+    required this.deletedAt,
+    this.phase,
+    this.steps = const [],
+  });
+
+  final String id;
+  final TrashKind kind;
+  final String title;
+  final String deletedBy;
+  final DateTime deletedAt;
+
+  /// The phase, when a phase was deleted.
+  final PhaseRecord? phase;
+
+  /// The step that was deleted, or every step the phase held.
+  final List<PlanStep> steps;
 }
 
 /// Where a request to hand a step to someone else has got to.

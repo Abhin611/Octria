@@ -31,7 +31,16 @@ class LayoutOptions {
 /// point on the rectangles, and its own vertical track in the gap before the
 /// target's column.
 class EdgeRoute {
-  const EdgeRoute({this.startDy = 0, this.endDy = 0, this.track = 0.5});
+  const EdgeRoute({
+    this.startDy = 0,
+    this.endDy = 0,
+    this.track = 0.5,
+    this.detour,
+  });
+
+  /// When the usual route would cross another step: where across the flow
+  /// (in world units) the arrow runs instead, in an empty gap between rows.
+  final double? detour;
 
   /// Offsets from the rectangle's centre, in world units at full node height.
   final double startDy;
@@ -101,6 +110,7 @@ GraphLayout computeLayout(
   for (final m in plan.members) {
     final lastInPhase = <String, PlanStep>{};
     for (final s in plan.routeFor(m.id)) {
+      if (_between(s)) continue;
       final before = lastInPhase[s.phaseId];
       if (before != null) previousOnRoute[s.id] = before;
       lastInPhase[s.phaseId] = s;
@@ -151,6 +161,7 @@ GraphLayout computeLayout(
 
   final cells = <(String, int), List<PlanStep>>{};
   for (final s in steps.values) {
+    if (_between(s)) continue;
     cells.putIfAbsent((s.ownerId, globalColumn(s)), () => []).add(s);
   }
 
@@ -176,7 +187,27 @@ GraphLayout computeLayout(
     }
   }
 
+  // A test or check point shared by several people sits midway between
+  // their lanes, taking no row of its own.
+  void placeShared() {
+    var laneTop = 0.0;
+    final middle = <String, double>{};
+    for (final m in lanes) {
+      final rows = laneRows[m.id]!;
+      middle[m.id] = laneTop + rows / 2 - 0.5;
+      laneTop += rows;
+    }
+    for (final s in steps.values) {
+      if (!_between(s)) continue;
+      final at = [for (final u in s.participants) ?middle[u]];
+      rowOf[s.id] = at.isEmpty
+          ? (middle[s.ownerId] ?? 0)
+          : at.reduce((a, b) => a + b) / at.length;
+    }
+  }
+
   writeRows();
+  placeShared();
   for (var sweep = 0; sweep < 2; sweep++) {
     cells.forEach((key, list) {
       if (list.length < 2) return;
@@ -190,6 +221,7 @@ GraphLayout computeLayout(
       list.sort((a, b) => weights[a.id]!.compareTo(weights[b.id]!));
     });
     writeRows();
+    placeShared();
   }
 
   // Phases and sub-columns run along the flow; lanes run across it.
@@ -252,7 +284,12 @@ GraphLayout computeLayout(
 
   return GraphLayout(
     options: options,
-    edgeRoutes: _routeEdges(plan, positions, globalColumn, vertical),
+    edgeRoutes: _clearOfSteps(
+      _routeEdges(plan, positions, globalColumn, vertical),
+      plan,
+      positions,
+      options,
+    ),
     positions: positions,
     phaseBands: phaseBands,
     laneBands: laneBands,
@@ -332,4 +369,102 @@ Map<String, EdgeRoute> _routeEdges(
     }
   }
   return routes;
+}
+
+/// A point several people share, drawn between their lanes.
+bool _between(PlanStep s) => s.shared && s.participants.length > 1;
+
+/// A step's size in the world, as drawn at full size.
+const double _nodeWidth = 176;
+const double _nodeHeight = 104;
+
+/// Sends any arrow that would run through another step round it instead: out
+/// into the nearest empty gap between rows, along it, and back in to its
+/// target. Arrows that are already clear are left as they are.
+Map<String, EdgeRoute> _clearOfSteps(
+  Map<String, EdgeRoute> routes,
+  Plan plan,
+  Map<String, Offset> positions,
+  LayoutOptions options,
+) {
+  final vertical = options.vertical;
+  double along(Offset p) => vertical ? p.dy : p.dx;
+  double across(Offset p) => vertical ? p.dx : p.dy;
+  Offset at(double a, double b) => vertical ? Offset(b, a) : Offset(a, b);
+  final halfAlong = (vertical ? _nodeHeight : _nodeWidth) / 2;
+  final pitchAlong = vertical ? options.rowHeight : options.cellWidth;
+  final pitchAcross = vertical ? options.cellWidth : options.rowHeight;
+
+  final boxes = {
+    for (final e in positions.entries)
+      e.key: Rect.fromCenter(
+        center: e.value,
+        width: _nodeWidth + 16,
+        height: _nodeHeight + 16,
+      ),
+  };
+
+  bool clear(List<Offset> line, String from, String to) {
+    for (var i = 0; i < line.length - 1; i++) {
+      final seg = Rect.fromPoints(line[i], line[i + 1]).inflate(2);
+      for (final e in boxes.entries) {
+        if (e.key == from || e.key == to) continue;
+        if (e.value.overlaps(seg)) return false;
+      }
+    }
+    return true;
+  }
+
+  final out = {...routes};
+  for (final to in plan.steps.values) {
+    for (final fromId in to.dependsOn) {
+      final a = positions[fromId];
+      final b = positions[to.id];
+      final key = '$fromId>${to.id}';
+      final route = routes[key];
+      if (a == null || b == null || route == null) continue;
+      final start = at(along(a) + halfAlong, across(a));
+      final end = at(along(b) - halfAlong - 8, across(b));
+      if (along(end) - along(start) < 16) continue;
+      final track =
+          along(b) - halfAlong - (pitchAlong - 2 * halfAlong) * route.track;
+      final usual = [start, at(track, across(a)), at(track, across(b)), end];
+      if (clear(usual, fromId, to.id)) continue;
+      const turn = 24.0;
+      for (final k in const [
+        0.5,
+        -0.5,
+        1.5,
+        -1.5,
+        2.5,
+        -2.5,
+        0.25,
+        -0.25,
+        0.75,
+        -0.75,
+      ]) {
+        final d = across(a) + k * pitchAcross;
+        final round = [
+          start,
+          at(along(start) + turn, across(a)),
+          at(along(start) + turn, d),
+          at(along(end) - turn, d),
+          at(along(end) - turn, across(b)),
+          end,
+        ];
+        if (clear(round, fromId, to.id) || k == -0.75) {
+          out[key] = EdgeRoute(
+            startDy: route.startDy,
+            endDy: route.endDy,
+            track: route.track,
+            detour: clear(round, fromId, to.id)
+                ? d
+                : across(a) + 0.5 * pitchAcross,
+          );
+          break;
+        }
+      }
+    }
+  }
+  return out;
 }

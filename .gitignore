@@ -47,7 +47,6 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
-
 # Rules test tools and emulator logs
 node_modules/
 *-debug.log
@@ -73,3 +72,6 @@ key.properties
 *service-account*.json
 *serviceAccount*.json
 *-adminsdk-*.json
+
+# Build-time keys for Ofy (App Check). Never commit.
+/dart_defines.json

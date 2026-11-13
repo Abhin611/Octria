@@ -6,10 +6,13 @@ import 'package:flutter/foundation.dart';
 
 import '../kanvas/kanvas_model.dart';
 import '../model/plan.dart';
+import '../ai/ai.dart';
+import '../ai/gemini_ai.dart';
 import 'backend.dart';
 import 'drive.dart';
 import 'google_drive.dart';
 import 'models.dart';
+import '../ai/split.dart';
 
 DateTime? _date(Object? value) => value is Timestamp ? value.toDate() : null;
 
@@ -74,6 +77,7 @@ class FirebaseBackend implements Backend {
             email: fromAuth.email,
             photoUrl: fromAuth.photoUrl,
             bio: (data['bio'] as String?) ?? '',
+            skills: _strings(data['skills']),
           ),
         );
       }
@@ -183,16 +187,24 @@ class FirebaseBackend implements Backend {
   Future<void> signOut() => _auth.signOut();
 
   @override
-  Future<void> saveProfile({required String name, required String bio}) async {
+  Future<void> saveProfile({
+    required String name,
+    required String bio,
+    List<String>? skills,
+  }) async {
     final user = _auth.currentUser;
     if (user == null) throw const BackendFailure('Please sign in first.');
     final trimmed = name.trim();
     final next = _fromAuth(user);
+    final kept = skills == null
+        ? (_current?.skills ?? const <String>[])
+        : cleanSkills(skills);
     final batch = _db.batch()
       ..set(_db.collection('users').doc(user.uid), {
         'name': trimmed,
         'photoUrl': next.photoUrl,
         'bio': bio.trim(),
+        if (skills != null) 'skills': kept,
       }, SetOptions(merge: true));
     // Other people see this name on the graph, so it follows into each lane.
     final rooms = await _db
@@ -213,6 +225,7 @@ class FirebaseBackend implements Backend {
         email: next.email,
         photoUrl: next.photoUrl,
         bio: bio.trim(),
+        skills: kept,
       ),
     );
   }
@@ -249,6 +262,14 @@ class FirebaseBackend implements Backend {
       approvalRequired: d['approvalRequired'] == true,
       joinApprovalRequired: d['joinApprovalRequired'] == true,
       createdAt: _date(d['createdAt']) ?? DateTime.now(),
+      linked: d['linked'] == true,
+      checkKind: (d['checkKind'] as String?) ?? '',
+      roles: {
+        if (d['roles'] is Map)
+          for (final e in (d['roles'] as Map).entries)
+            if (e.key is String && e.value is String)
+              e.key as String: e.value as String,
+      },
     );
   }
 
@@ -271,6 +292,7 @@ class FirebaseBackend implements Backend {
     required bool individual,
     DateTime? deadline,
     double? hoursPerWeek,
+    bool linked = false,
   }) async {
     final me = _uid;
     final room = _db.collection('classrooms').doc();
@@ -290,6 +312,8 @@ class FirebaseBackend implements Backend {
         'inviteCode': code,
         'approvalRequired': false,
         'joinApprovalRequired': false,
+        'linked': linked && !individual,
+        'roles': <String, String>{},
         'status': 'active',
         'createdAt': FieldValue.serverTimestamp(),
       })
@@ -373,11 +397,13 @@ class FirebaseBackend implements Backend {
     return id;
   }
 
-  PlanStep _stepFrom(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data();
+  PlanStep _stepFrom(QueryDocumentSnapshot<Map<String, dynamic>> doc) =>
+      _stepFromMap(doc.id, doc.data());
+
+  PlanStep _stepFromMap(String id, Map<String, dynamic> d) {
     final now = DateTime.now();
     return PlanStep(
-      id: doc.id,
+      id: id,
       phaseId: (d['phaseId'] as String?) ?? '',
       ownerId: (d['ownerUid'] as String?) ?? '',
       title: (d['title'] as String?) ?? '',
@@ -400,6 +426,14 @@ class FirebaseBackend implements Backend {
             ),
       ],
       order: (d['order'] as num?)?.toInt() ?? 0,
+      kind: StepKind.named(d['kind'] as String?),
+      participants: _strings(d['participants']),
+      doneBy: _strings(d['doneBy']),
+      ticks: {
+        if (d['ticks'] is Map)
+          for (final e in (d['ticks'] as Map).entries)
+            if (e.key is String) e.key as String: _strings(e.value),
+      },
     );
   }
 
@@ -479,6 +513,9 @@ class FirebaseBackend implements Backend {
         'hoursPerWeek': c.hoursPerWeek,
         'approvalRequired': c.approvalRequired,
         'joinApprovalRequired': c.joinApprovalRequired,
+        'linked': c.linked,
+        'roles': c.roles,
+        'checkKind': c.checkKind,
       });
     // Someone with only a code can't read the classroom, so the code says too.
     if (!c.individual) {
@@ -526,42 +563,241 @@ class FirebaseBackend implements Backend {
         .collection('steps')
         .where('phaseId', isEqualTo: phaseId)
         .get();
-    final batch = _db.batch()..delete(room.collection('phases').doc(phaseId));
+    final phase = await room.collection('phases').doc(phaseId).get();
+    final batch = _db.batch()
+      ..set(room.collection('trash').doc(), {
+        'kind': 'phase',
+        'title': (phase.data()?['title'] as String?) ?? 'A phase',
+        'deletedBy': _uid,
+        'deletedAt': FieldValue.serverTimestamp(),
+        'phase': {
+          'id': phaseId,
+          'title': (phase.data()?['title'] as String?) ?? '',
+          'order': (phase.data()?['order'] as num?)?.toInt() ?? 0,
+        },
+        'steps': [
+          for (final step in inPhase.docs) {...step.data(), 'id': step.id},
+        ],
+      })
+      ..delete(room.collection('phases').doc(phaseId));
     for (final step in inPhase.docs) {
       batch.delete(step.reference);
     }
     await _writing(batch.commit());
   }
 
+  Map<String, Object?> _stepMap(PlanStep s) => {
+    'phaseId': s.phaseId,
+    'ownerUid': s.ownerId,
+    'title': s.title,
+    'description': s.description,
+    'status': s.status.name,
+    'dependsOn': s.dependsOn,
+    'estimateHours': s.estimateHours,
+    'startDate': Timestamp.fromDate(s.start),
+    'dueDate': Timestamp.fromDate(s.due),
+    'skills': s.skills,
+    'checklist': [
+      for (final item in s.checklist) {'title': item.title, 'done': item.done},
+    ],
+    'order': s.order,
+    // Only test and check points carry these, so ordinary steps stay as
+    // they were stored.
+    if (s.shared) ...{
+      'kind': s.kind.name,
+      'participants': s.participants,
+      'doneBy': s.doneBy,
+      'ticks': s.ticks,
+    },
+  };
+
   @override
   Future<void> saveStep(String classroomId, PlanStep s) => _writing(
-    _room(classroomId).collection('steps').doc(s.id).set({
-      'phaseId': s.phaseId,
-      'ownerUid': s.ownerId,
-      'title': s.title,
-      'description': s.description,
-      'status': s.status.name,
-      'dependsOn': s.dependsOn,
-      'estimateHours': s.estimateHours,
-      'startDate': Timestamp.fromDate(s.start),
-      'dueDate': Timestamp.fromDate(s.due),
-      'skills': s.skills,
-      'checklist': [
-        for (final item in s.checklist)
-          {'title': item.title, 'done': item.done},
-      ],
-      'order': s.order,
-    }),
+    _room(classroomId).collection('steps').doc(s.id).set(_stepMap(s)),
   );
 
   @override
   Future<void> deleteStep(String classroomId, String stepId) async {
+    final room = _room(classroomId);
+    final ref = room.collection('steps').doc(stepId);
+    // What it held, for Deleted: from this device's copy, which is instant,
+    // so the delete itself goes out straight away.
+    Map<String, dynamic>? data;
+    try {
+      data = (await ref.get(const GetOptions(source: Source.cache))).data();
+    } on FirebaseException {
+      try {
+        data = (await ref.get()).data();
+      } on FirebaseException {
+        data = null;
+      }
+    }
+    final batch = _db.batch()..delete(ref);
+    if (data != null) {
+      batch.set(room.collection('trash').doc(), {
+        'kind': 'step',
+        'title': (data['title'] as String?) ?? 'A step',
+        'deletedBy': _uid,
+        'deletedAt': FieldValue.serverTimestamp(),
+        'steps': [
+          {...data, 'id': stepId},
+        ],
+      });
+    }
+    await _writing(batch.commit());
     // Only the comments this person is in; the rest can't be read by anyone
     // but the two people in them, so they stay out of reach.
     await _deleteAll(
       _comments(classroomId, stepId).where('participants', arrayContains: _uid),
     );
-    await _writing(_room(classroomId).collection('steps').doc(stepId).delete());
+  }
+
+  @override
+  Stream<List<TrashItem>> trash(String classroomId) => _room(classroomId)
+      .collection('trash')
+      .orderBy('deletedAt', descending: true)
+      .limit(200)
+      .snapshots()
+      .map(
+        (snap) => [
+          for (final doc in snap.docs)
+            TrashItem(
+              id: doc.id,
+              kind: doc.data()['kind'] == 'phase'
+                  ? TrashKind.phase
+                  : TrashKind.step,
+              title: (doc.data()['title'] as String?) ?? '',
+              deletedBy: (doc.data()['deletedBy'] as String?) ?? '',
+              deletedAt: _date(doc.data()['deletedAt']) ?? DateTime.now(),
+              phase: doc.data()['phase'] is Map
+                  ? PhaseRecord(
+                      id: '${(doc.data()['phase'] as Map)['id'] ?? ''}',
+                      title: '${(doc.data()['phase'] as Map)['title'] ?? ''}',
+                      order:
+                          ((doc.data()['phase'] as Map)['order'] as num?)
+                              ?.toInt() ??
+                          0,
+                    )
+                  : null,
+              steps: [
+                for (final s in (doc.data()['steps'] as List?) ?? const [])
+                  if (s is Map)
+                    _stepFromMap('${s['id'] ?? ''}', s.cast<String, dynamic>()),
+              ],
+            ),
+        ],
+      );
+
+  @override
+  Future<void> restoreTrash(String classroomId, TrashItem item) async {
+    final room = _room(classroomId);
+    final batch = _db.batch();
+    final phase = item.phase;
+    if (phase != null) {
+      batch.set(room.collection('phases').doc(phase.id), {
+        'title': phase.title,
+        'order': phase.order,
+      });
+    }
+    for (final s in item.steps) {
+      batch.set(room.collection('steps').doc(s.id), _stepMap(s));
+    }
+    batch.delete(room.collection('trash').doc(item.id));
+    await _writing(batch.commit());
+  }
+
+  @override
+  Future<void> purgeTrash(String classroomId, String itemId) =>
+      _writing(_room(classroomId).collection('trash').doc(itemId).delete());
+
+  CollectionReference<Map<String, dynamic>> get _resultsRef =>
+      _db.collection('users').doc(_uid).collection('results');
+
+  @override
+  Stream<List<TestResult>> results() => _resultsRef
+      .orderBy('at', descending: true)
+      .limit(200)
+      .snapshots()
+      .map(
+        (snap) => [
+          for (final doc in snap.docs)
+            TestResult(
+              id: doc.id,
+              classroomId: (doc.data()['classroomId'] as String?) ?? '',
+              label: (doc.data()['label'] as String?) ?? '',
+              targetId: (doc.data()['targetId'] as String?) ?? '',
+              right: (doc.data()['right'] as num?)?.toInt() ?? 0,
+              total: (doc.data()['total'] as num?)?.toInt() ?? 0,
+              mock: doc.data()['mock'] == true,
+              level: (doc.data()['level'] as String?) ?? '',
+              interview: doc.data()['interview'] == true,
+              missed: [
+                for (final m
+                    in (doc.data()['missed'] is List
+                        ? doc.data()['missed'] as List
+                        : const []))
+                  '$m',
+              ],
+              at: _date(doc.data()['at']) ?? DateTime.now(),
+            ),
+        ],
+      );
+
+  @override
+  Future<void> saveResult(TestResult result) {
+    String cut(String s, int max) => s.length > max ? s.substring(0, max) : s;
+    return _writing(
+      (result.id.isEmpty ? _resultsRef.doc() : _resultsRef.doc(result.id)).set({
+        'classroomId': result.classroomId,
+        'label': cut(result.label, 200),
+        'targetId': result.targetId,
+        'right': result.right,
+        'total': result.total,
+        'mock': result.mock,
+        'level': result.level,
+        'interview': result.interview,
+        'missed': [for (final m in result.missed.take(20)) cut(m, 300)],
+        'at': Timestamp.fromDate(DateTime.now()),
+      }),
+    );
+  }
+
+  @override
+  Future<void> deleteResult(String resultId) =>
+      _writing(_resultsRef.doc(resultId).delete());
+
+  @override
+  Future<void> hideThread(String classroomId, String threadId, bool hidden) =>
+      _writing(
+        _room(classroomId).collection('threads').doc(threadId).update({
+          'hiddenBy': hidden
+              ? FieldValue.arrayUnion([_uid])
+              : FieldValue.arrayRemove([_uid]),
+        }),
+      );
+
+  @override
+  Future<Set<String>> hiddenActivity() async {
+    try {
+      final snap = await _db.collection('users').doc(_uid).get();
+      return _strings(snap.data()?['hiddenActivity']).toSet();
+    } on FirebaseException {
+      return {};
+    }
+  }
+
+  @override
+  Future<void> hideActivity(Iterable<String> entryIds) async {
+    final ids = entryIds.toList();
+    for (var i = 0; i < ids.length; i += 400) {
+      await _writing(
+        _db.collection('users').doc(_uid).set({
+          'hiddenActivity': FieldValue.arrayUnion(
+            ids.skip(i).take(400).toList(),
+          ),
+        }, SetOptions(merge: true)),
+      );
+    }
   }
 
   /// Deletes every document in a collection, a batch at a time.
@@ -765,6 +1001,15 @@ class FirebaseBackend implements Backend {
         await leaveClassroom(c.id);
       }
     }
+    // Their test results are theirs alone, so they go too.
+    try {
+      final results = await _resultsRef.get();
+      for (final doc in results.docs) {
+        await doc.reference.delete();
+      }
+    } on FirebaseException {
+      // Out of reach now; the account still goes.
+    }
     await _writing(_db.collection('users').doc(me).delete());
     try {
       await user.delete();
@@ -864,6 +1109,40 @@ class FirebaseBackend implements Backend {
       stepId: (d['stepId'] as String?) ?? '',
       createdAt: _date(d['createdAt']) ?? DateTime.now(),
     );
+  }
+
+  // Ofy ---------------------------------------------------------------------
+
+  @override
+  late final Ai ai = GeminiAi(spend: spendAiCall);
+
+  @override
+  Future<void> spendAiCall() async {
+    final now = DateTime.now();
+    final day =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+    final ref = _db
+        .collection('users')
+        .doc(_uid)
+        .collection('aiUsage')
+        .doc(day);
+    try {
+      await _db.runTransaction((tx) async {
+        final snap = await tx.get(ref);
+        final used = (snap.data()?['count'] as num?)?.toInt() ?? 0;
+        if (used >= kAiCallsPerDay) {
+          throw const BackendFailure(aiLimitReached);
+        }
+        tx.set(ref, {'count': used + 1, 'day': day});
+      });
+    } on FirebaseException catch (e) {
+      throw BackendFailure(
+        e.code == 'permission-denied'
+            ? aiLimitReached
+            : 'Ofy couldn’t start (${e.code}). Please retry.',
+      );
+    }
   }
 
   // Files -------------------------------------------------------------------
@@ -1189,6 +1468,7 @@ class FirebaseBackend implements Backend {
       lastText: (d['lastText'] as String?) ?? '',
       lastBy: (d['lastBy'] as String?) ?? '',
       readAt: read,
+      hiddenBy: _strings(d['hiddenBy']),
     );
   }
 
@@ -1222,7 +1502,13 @@ class FirebaseBackend implements Backend {
             .get();
         for (final doc in mine.docs) {
           final others = _strings(doc.data()['participants']).toSet();
-          if (setEquals(others, people.toSet())) return doc.id;
+          if (setEquals(others, people.toSet())) {
+            // Starting it again brings a deleted chat back.
+            if (_strings(doc.data()['hiddenBy']).contains(me)) {
+              await hideThread(classroomId, doc.id, false);
+            }
+            return doc.id;
+          }
         }
       } on FirebaseException {
         // Offline with nothing cached: start a new one.
@@ -1853,6 +2139,23 @@ class FirebaseBackend implements Backend {
           ),
         ),
     ];
+  }
+
+  @override
+  Future<AppUser?> profileOf(String uid) async {
+    try {
+      final d = (await _db.collection('users').doc(uid).get()).data();
+      if (d == null) return null;
+      return AppUser(
+        uid: uid,
+        name: (d['name'] as String?) ?? '',
+        photoUrl: (d['photoUrl'] as String?) ?? '',
+        bio: (d['bio'] as String?) ?? '',
+        skills: _strings(d['skills']).take(25).toList(),
+      );
+    } on FirebaseException {
+      return null;
+    }
   }
 
   @override

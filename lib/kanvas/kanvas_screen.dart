@@ -17,6 +17,7 @@ import '../widgets/hover_hint.dart';
 import 'kanvas_files.dart';
 import 'kanvas_model.dart';
 import 'kanvas_painter.dart';
+import 'kanvas_ofy.dart';
 
 enum KTool {
   select('Select', CupertinoIcons.cursor_rays),
@@ -167,6 +168,31 @@ class _KanvasScreenState extends State<KanvasScreen> {
     _editor.dispose();
     _editorFocus.dispose();
     super.dispose();
+  }
+
+  /// Ofy reads the board; what it says can go on as notes or a checklist,
+  /// beside what's there, and comes into view.
+  Future<void> _askOfy() async {
+    final add = await showGlassSheet<BoardAddition>(
+      context,
+      (_) => BoardOfySheet(
+        backend: widget.backend,
+        title: _board?.title ?? 'Board',
+        shapes: _shapes,
+        canEdit: _canEdit,
+      ),
+    );
+    if (add == null || !mounted || !_canEdit) return;
+    final byId = _byId;
+    Rect? all;
+    for (final s in _shapes) {
+      final b = boundsOf(s, byId);
+      all = all == null ? b : all.expandToInclude(b);
+    }
+    final made = shapesFor(add, around: all, newId: _newId);
+    if (made.isEmpty) return;
+    _change([..._shapes, ...made]);
+    setState(_frame);
   }
 
   void _frame() {
@@ -1206,6 +1232,14 @@ class _KanvasScreenState extends State<KanvasScreen> {
             quiet: true,
             height: 44,
             onTap: () => setState(_frame),
+          ),
+          PressButton(
+            label: 'Ask Ofy about this board',
+            icon: CupertinoIcons.sparkles,
+            iconOnly: true,
+            quiet: true,
+            height: 44,
+            onTap: () => unawaited(_askOfy()),
           ),
           PressButton(
             label: 'Version history',

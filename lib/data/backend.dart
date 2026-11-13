@@ -3,6 +3,7 @@ import '../model/plan.dart';
 
 import 'dart:typed_data';
 
+import '../ai/ai.dart';
 import 'drive.dart';
 import 'models.dart';
 
@@ -21,6 +22,11 @@ class ClassroomState {
   final List<PlanStep> steps;
 }
 
+/// What a person sees when today's share of Ofy is used up.
+const String aiLimitReached =
+    'You’ve asked Ofy $kAiCallsPerDay times today, the most for one day. '
+    'It’s free because everyone shares it; ask again tomorrow.';
+
 /// The app's one door to accounts and stored plans. The real one is Firebase;
 /// tests and local runs use an in-memory one that keeps the same rules.
 abstract class Backend {
@@ -34,7 +40,16 @@ abstract class Backend {
   Future<void> signInWithGoogle();
   Future<void> signInWithGitHub();
   Future<void> signOut();
-  Future<void> saveProfile({required String name, required String bio});
+
+  /// With [skills] left out, the ones there are stay.
+  Future<void> saveProfile({
+    required String name,
+    required String bio,
+    List<String>? skills,
+  });
+
+  /// Someone's public profile: their name, picture and bio. Null if unknown.
+  Future<AppUser?> profileOf(String uid);
 
   /// The classrooms this person belongs to, newest first.
   Stream<List<Classroom>> classrooms();
@@ -48,6 +63,7 @@ abstract class Backend {
     required bool individual,
     DateTime? deadline,
     double? hoursPerWeek,
+    bool linked = false,
   });
 
   /// Returns the classroom's id, or null if the request now waits for the
@@ -78,11 +94,38 @@ abstract class Backend {
 
   Future<void> savePhase(String classroomId, PhaseRecord phase);
 
-  /// Removes a phase and every step in it.
+  /// Removes a phase and every step in it. They wait in [trash].
   Future<void> deletePhase(String classroomId, String phaseId);
 
   Future<void> saveStep(String classroomId, PlanStep step);
+
+  /// Removes a step. It waits in [trash].
   Future<void> deleteStep(String classroomId, String stepId);
+
+  // Deleted -----------------------------------------------------------------
+
+  /// Deleted steps and phases, newest first, ready to bring back.
+  Stream<List<TrashItem>> trash(String classroomId);
+
+  /// Puts a deleted step, or a phase and its steps, back.
+  Future<void> restoreTrash(String classroomId, TrashItem item);
+
+  /// Forgets a deleted item for good. Whoever deleted it, or a manager, can.
+  Future<void> purgeTrash(String classroomId, String itemId);
+
+  /// Takes a chat out of this person's lists, into their Deleted chats, or
+  /// brings it back. Others in it keep it.
+  Future<void> hideThread(String classroomId, String threadId, bool hidden);
+
+  /// This person's own practice and mock test results, newest first. Nobody
+  /// else sees them.
+  Stream<List<TestResult>> results();
+  Future<void> saveResult(TestResult result);
+  Future<void> deleteResult(String resultId);
+
+  /// Activity this person cleared from their own activity page.
+  Future<Set<String>> hiddenActivity();
+  Future<void> hideActivity(Iterable<String> entryIds);
 
   Future<void> logActivity(String classroomId, ActivityEntry entry);
 
@@ -110,6 +153,15 @@ abstract class Backend {
 
   /// A new id for a phase, step or activity entry, usable before saving.
   String newId();
+
+  // Ofy ---------------------------------------------------------------------
+
+  /// Ofy's model.
+  Ai get ai;
+
+  /// Counts one request to Ofy against this person's share for today, or
+  /// throws [BackendFailure] when today's [kAiCallsPerDay] are used up.
+  Future<void> spendAiCall();
 
   // Files -------------------------------------------------------------------
 

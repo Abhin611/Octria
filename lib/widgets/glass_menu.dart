@@ -1,5 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
+import '../ofy/ofy.dart';
+
 import '../theme/tokens.dart';
 import 'controls.dart';
 
@@ -196,7 +198,10 @@ class GlassMenuList extends StatelessWidget {
             ),
             if (dense)
               for (final e in s.entries)
-                GlassMenuRow(entry: e, dense: true, onDone: onDone)
+                OfyTarget(
+                  id: 'menu:${e.label}',
+                  child: GlassMenuRow(entry: e, dense: true, onDone: onDone),
+                )
             else
               GlassPanel(
                 radius: 18,
@@ -211,7 +216,10 @@ class GlassMenuList extends StatelessWidget {
                           padding: const EdgeInsets.only(left: 54),
                           child: Container(height: 0.5, color: p.hairline),
                         ),
-                      GlassMenuRow(entry: e, onDone: onDone),
+                      OfyTarget(
+                        id: 'menu:${e.label}',
+                        child: GlassMenuRow(entry: e, onDone: onDone),
+                      ),
                     ],
                   ],
                 ),

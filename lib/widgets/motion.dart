@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 
 import '../theme/tokens.dart';
 
@@ -16,16 +17,17 @@ class Rise extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (MediaQuery.disableAnimationsOf(context)) return child;
-    final delay = math.min(index, 10) * 45;
-    final total = 380 + delay;
+    // Short and close together: a page is seen many times a day.
+    final delay = math.min(index, 8) * 34;
+    final total = 300 + delay;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: Duration(milliseconds: total),
-      curve: Interval(delay / total, 1, curve: Curves.easeOutCubic),
+      curve: Interval(delay / total, 1, curve: Motion.out),
       builder: (context, t, child) => Opacity(
         opacity: t,
         child: Transform.translate(
-          offset: Offset(0, (1 - t) * 14),
+          offset: Offset(0, (1 - t) * 10),
           child: child,
         ),
       ),
@@ -34,18 +36,23 @@ class Rise extends StatelessWidget {
   }
 }
 
-/// Gives way under the finger straight away, and lifts a little under a mouse.
+/// Gives way under the finger straight away. Under a mouse, light follows
+/// the pointer across it, as it would across a pane of glass.
 class Pressable extends StatefulWidget {
   const Pressable({
     super.key,
     required this.child,
     required this.onTap,
     required this.label,
+    this.radius = 16,
   });
 
   final Widget child;
   final VoidCallback onTap;
   final String label;
+
+  /// The corner radius of what's inside, so the light stays within it.
+  final double radius;
 
   @override
   State<Pressable> createState() => _PressableState();
@@ -55,16 +62,30 @@ class _PressableState extends State<Pressable> {
   var _down = false;
   var _over = false;
 
+  /// Where the pointer is over it.
+  final _at = ValueNotifier<Offset>(Offset.zero);
+
+  @override
+  void dispose() {
+    _at.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final scale = _down ? 0.97 : (_over ? 1.015 : 1.0);
+    final p = Palette.of(context);
+    final still = MediaQuery.disableAnimationsOf(context);
     return Semantics(
       button: true,
       label: widget.label,
       excludeSemantics: true,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _over = true),
+        onEnter: (e) {
+          _at.value = e.localPosition;
+          setState(() => _over = true);
+        },
+        onHover: (e) => _at.value = e.localPosition,
         onExit: (_) => setState(() => _over = false),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -73,15 +94,82 @@ class _PressableState extends State<Pressable> {
           onTapCancel: () => setState(() => _down = false),
           onTap: widget.onTap,
           child: AnimatedScale(
-            scale: scale,
-            duration: _down ? Duration.zero : const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            child: widget.child,
+            scale: _down ? 0.97 : 1.0,
+            duration: _down ? Duration.zero : Motion.press,
+            curve: Motion.out,
+            child: Stack(
+              children: [
+                widget.child,
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: _over ? 1 : 0,
+                      duration: still ? Duration.zero : Motion.quick,
+                      curve: Curves.ease,
+                      child: RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _GlintPainter(
+                            _at,
+                            widget.radius,
+                            p.brightness == Brightness.dark
+                                ? const Color(0x1FFFFFFF)
+                                : const Color(0x8CFFFFFF),
+                            p.brightness == Brightness.dark
+                                ? const Color(0x33FFFFFF)
+                                : const Color(0xB3FFFFFF),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+/// A soft pool of light under the pointer, and a brighter edge near it.
+class _GlintPainter extends CustomPainter {
+  _GlintPainter(this.at, this.radius, this.light, this.edge)
+    : super(repaint: at);
+
+  final ValueListenable<Offset> at;
+  final double radius;
+  final Color light;
+  final Color edge;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final shape = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    final reach = math.max(120.0, size.shortestSide * 1.4);
+    final none = light.withValues(alpha: 0);
+    canvas.drawRRect(
+      shape,
+      Paint()
+        ..shader = RadialGradient(colors: [light, none])
+            .createShader(Rect.fromCircle(center: at.value, radius: reach)),
+    );
+    canvas.drawRRect(
+      shape.deflate(0.5),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..shader = RadialGradient(
+          colors: [edge, edge.withValues(alpha: 0)],
+        ).createShader(Rect.fromCircle(center: at.value, radius: reach * 0.8)),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GlintPainter old) =>
+      old.radius != radius || old.light != light || old.edge != edge;
 }
 
 /// How much of something is done, filling as it appears, inside a fine ring of
@@ -100,8 +188,8 @@ class ProgressRing extends StatelessWidget {
       tween: Tween(begin: 0, end: value),
       duration: MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
-          : const Duration(milliseconds: 950),
-      curve: Curves.easeOutCubic,
+          : const Duration(milliseconds: 700),
+      curve: Motion.out,
       builder: (context, shown, _) => SizedBox.square(
         dimension: size,
         child: CustomPaint(
@@ -163,8 +251,8 @@ class ConcentricRings extends StatelessWidget {
             tween: Tween(begin: 0, end: 1),
             duration: MediaQuery.disableAnimationsOf(context)
                 ? Duration.zero
-                : const Duration(milliseconds: 1150),
-            curve: Curves.easeOutCubic,
+                : const Duration(milliseconds: 850),
+            curve: Motion.out,
             builder: (context, t, _) => SizedBox.square(
               dimension: size,
               child: CustomPaint(

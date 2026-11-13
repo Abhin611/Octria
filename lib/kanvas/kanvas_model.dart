@@ -444,3 +444,64 @@ KShape? shapeAt(List<KShape> shapes, Offset p, {String except = ''}) {
   }
   return null;
 }
+
+/// What a board says, as plain lines for Ofy: its notes, text, checklists and
+/// labelled boxes, top to bottom then left to right, and which arrows join
+/// what. Drawings and files have no words, so they're only counted.
+List<String> boardLines(List<KShape> shapes, {int most = 120}) {
+  String short(String s) {
+    final one = s.trim().replaceAll(RegExp(r'\s+'), ' ');
+    return one.length > 300 ? '${one.substring(0, 300)}…' : one;
+  }
+
+  final byId = {for (final s in shapes) s.id: s};
+  final worded =
+      shapes
+          .where(
+            (s) =>
+                s.kind != ShapeKind.arrow &&
+                s.kind != ShapeKind.stroke &&
+                (s.text.trim().isNotEmpty ||
+                    s.items.any((i) => i.text.trim().isNotEmpty) ||
+                    s.url.isNotEmpty),
+          )
+          .toList()
+        ..sort((a, b) {
+          // Rows of about a note's height, read left to right.
+          final row = (a.rect.top / 140).floor().compareTo(
+            (b.rect.top / 140).floor(),
+          );
+          return row != 0 ? row : a.rect.left.compareTo(b.rect.left);
+        });
+  final lines = <String>[];
+  for (final s in worded) {
+    switch (s.kind) {
+      case ShapeKind.checklist:
+        if (s.text.trim().isNotEmpty) lines.add('List: ${short(s.text)}');
+        for (final i in s.items) {
+          if (i.text.trim().isEmpty) continue;
+          lines.add('${i.done ? '[done]' : '[to do]'} ${short(i.text)}');
+        }
+      case ShapeKind.link:
+        lines.add(
+          'Link: ${short(s.text).isEmpty ? s.url : '${short(s.text)} (${s.url})'}',
+        );
+      case ShapeKind.file:
+        lines.add('File: ${short(s.text)}');
+      case ShapeKind.sticky:
+        lines.add('Note: ${short(s.text)}');
+      default:
+        lines.add(short(s.text));
+    }
+  }
+  for (final a in shapes.where((s) => s.kind == ShapeKind.arrow)) {
+    final from = short(byId[a.fromId]?.text ?? '');
+    final to = short(byId[a.toId]?.text ?? '');
+    if (from.isNotEmpty && to.isNotEmpty) lines.add('“$from” leads to “$to”');
+  }
+  final drawn = shapes.where((s) => s.kind == ShapeKind.stroke).length;
+  if (drawn > 0 && lines.isNotEmpty) {
+    lines.add('(Also $drawn hand-drawn ${drawn == 1 ? 'mark' : 'marks'}.)');
+  }
+  return lines.take(most).toList();
+}

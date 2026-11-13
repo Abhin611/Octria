@@ -8,7 +8,7 @@ import '../widgets/controls.dart';
 import 'home_screen.dart';
 
 /// Shows sign-in or the person's classrooms, following the account as it changes.
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({
     super.key,
     required this.backend,
@@ -19,9 +19,22 @@ class AuthGate extends StatelessWidget {
   final ValueChanged<Brightness> onBrightnessChanged;
 
   @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  // Listened to once. Asking again on every rebuild, such as a change of
+  // background, would show the loading page and start the home pages over.
+  late final Stream<AppUser?> _user = widget.backend.user;
+
+  Backend get backend => widget.backend;
+  ValueChanged<Brightness> get onBrightnessChanged =>
+      widget.onBrightnessChanged;
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<AppUser?>(
-      stream: backend.user,
+      stream: _user,
       builder: (context, snapshot) {
         final Widget page;
         if (snapshot.connectionState == ConnectionState.waiting) {

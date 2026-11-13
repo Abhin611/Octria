@@ -128,6 +128,16 @@ class GraphCamera extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A mouse wheel or trackpad scroll: moves at once and stops firmly at the
+  /// edges. No stretch and spring back, which a stream of small scrolls
+  /// against an edge would turn into a shiver.
+  void scrollBy(Offset delta) {
+    final p = _hardBound(pan + delta, scale.clamp(kMinScale, kMaxScale));
+    _x.jumpTo(p.dx);
+    _y.jumpTo(p.dy);
+    notifyListeners();
+  }
+
   void zoomAround(Offset focal, double factor) {
     final nextScale = _softScale(scale * factor);
     final anchor = toWorld(focal);

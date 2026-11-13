@@ -641,6 +641,82 @@ describe('private chats', () => {
     await assertFails(updateDoc(g('amy'), { participants: ['amy', 'ben'] }));
     await assertFails(updateDoc(g('master'), { 'readAt.master': serverTimestamp() }));
   });
+
+  it('each person deletes a chat from their own lists only', async () => {
+    await seed();
+    const g = (uid) => doc(db(uid), 'classrooms/r1/threads/g2');
+    await assertSucceeds(setDoc(g('ben'), thread(['ben', 'amy', 'co'], 'ben')));
+    await assertSucceeds(updateDoc(g('amy'), { hiddenBy: ['amy'] }));
+    await assertFails(updateDoc(g('amy'), { hiddenBy: ['amy', 'ben'] }));
+    await assertFails(updateDoc(g('master'), { hiddenBy: ['amy', 'master'] }));
+    await assertSucceeds(updateDoc(g('ben'), { hiddenBy: ['amy', 'ben'] }));
+    await assertSucceeds(updateDoc(g('amy'), { hiddenBy: ['ben'] }));
+    await assertFails(updateDoc(g('co'), { hiddenBy: [] }));
+  });
+});
+
+describe('mock test and check points', () => {
+  const point = (doneBy = [], status = 'todo') =>
+    step('master', { kind: 'test', participants: ['amy', 'ben'], doneBy, status });
+  const pt = (uid) => doc(db(uid), 'classrooms/r1/steps/pt');
+
+  it('each person marks only their own part, and it is done when all are', async () => {
+    await seed({ members: ['master', 'co', 'amy', 'ben', 'cara'] });
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'classrooms/r1/steps/pt'), point());
+    });
+    await assertFails(updateDoc(pt('amy'), { doneBy: ['ben'], status: 'doing' }));
+    await assertFails(updateDoc(pt('amy'), { doneBy: ['amy'], status: 'done' }));
+    await assertFails(updateDoc(pt('amy'), { doneBy: ['amy'], status: 'doing', title: 'Mine now' }));
+    // Someone not in it (managers can still change any step).
+    await assertFails(updateDoc(pt('cara'), { doneBy: ['cara'], status: 'doing' }));
+    await assertSucceeds(updateDoc(pt('amy'), { doneBy: ['amy'], status: 'doing' }));
+    await assertFails(updateDoc(pt('ben'), { doneBy: ['amy', 'ben'], status: 'doing' }));
+    await assertSucceeds(updateDoc(pt('ben'), { doneBy: ['amy', 'ben'], status: 'done' }));
+    await assertSucceeds(updateDoc(pt('amy'), { doneBy: ['ben'], status: 'doing' }));
+  });
+
+  it('each person saves only their own ticks', async () => {
+    await seed();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'classrooms/r1/steps/pt'), point());
+    });
+    await assertSucceeds(updateDoc(pt('amy'), { 'ticks.amy': ['Waves'] }));
+    await assertFails(updateDoc(pt('amy'), { 'ticks.ben': ['Waves'] }));
+    await assertSucceeds(updateDoc(pt('ben'), { 'ticks.ben': ['Optics'], doneBy: ['ben'], status: 'doing' }));
+  });
+});
+
+describe('deleted steps and phases', () => {
+  const item = (kind, by) => ({
+    kind,
+    title: 'Old work',
+    deletedBy: by,
+    deletedAt: serverTimestamp(),
+    steps: [],
+  });
+  const x = (uid, id = 't1') => doc(db(uid), `classrooms/r1/trash/${id}`);
+
+  it('anyone in the classroom keeps what they deleted, under their own name', async () => {
+    await seed();
+    await assertSucceeds(setDoc(x('amy'), item('step', 'amy')));
+    await assertFails(setDoc(x('amy', 't2'), item('step', 'ben')));
+    await assertFails(setDoc(x('eve', 't3'), item('step', 'eve')));
+    await assertSucceeds(getDoc(x('ben')));
+    await assertFails(getDoc(x('eve')));
+    await assertFails(updateDoc(x('amy'), { title: 'Changed' }));
+  });
+
+  it('only a manager keeps a deleted phase; whoever deleted it or a manager forgets it', async () => {
+    await seed();
+    await assertFails(setDoc(x('amy', 'p1'), item('phase', 'amy')));
+    await assertSucceeds(setDoc(x('co', 'p1'), item('phase', 'co')));
+    await assertSucceeds(setDoc(x('amy'), item('step', 'amy')));
+    await assertFails(deleteDoc(x('ben')));
+    await assertSucceeds(deleteDoc(x('master')));
+    await assertSucceeds(setDoc(x('amy', 't4'), item('step', 'amy')));
+    await assertSucceeds(deleteDoc(x('amy', 't4')));
+  });
 });
 
 describe('handovers', () => {
@@ -720,6 +796,28 @@ describe('owner-only study materials', () => {
   });
 });
 
+describe('ofy daily share', () => {
+  const day = '2026-11-08';
+  const use = (uid, owner = uid) => doc(db(uid), `users/${owner}/aiUsage/${day}`);
+
+  it('counts up by one, to at most 40 a day, and only for yourself', async () => {
+    await seed();
+    await assertFails(setDoc(use('amy'), { count: 5, day }));
+    await assertSucceeds(setDoc(use('amy'), { count: 1, day }));
+    await assertFails(setDoc(use('ben', 'amy'), { count: 2, day }));
+    await assertFails(getDoc(use('ben', 'amy')));
+    await assertFails(updateDoc(use('amy'), { count: 3 }));
+    await assertSucceeds(updateDoc(use('amy'), { count: 2 }));
+    await assertFails(updateDoc(use('amy'), { count: 1 }));
+    await assertFails(setDoc(doc(db('amy'), 'users/amy/aiUsage/2026-11-09'), { count: 1, day }));
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), `users/amy/aiUsage/${day}`), { count: 40, day });
+    });
+    await assertFails(updateDoc(use('amy'), { count: 41 }));
+    await assertFails(deleteDoc(use('amy')));
+  });
+});
+
 describe('drive files', () => {
   const file = (uid, extra = {}) => ({
     name: 'Notes.pdf',
@@ -744,6 +842,14 @@ describe('drive files', () => {
     await assertFails(setDoc(doc(db('ben'), 'classrooms/r1/files/f3'), file('amy')));
     await assertFails(setDoc(doc(db('ben'), 'classrooms/r1/files/f4'), file('ben', { url: 'https://evil.example/x' })));
     await assertFails(setDoc(doc(db('ben'), 'classrooms/r1/files/f5'), file('ben', { extra: 1 })));
+  });
+
+  it('a web page Ofy found can be kept as a link', async () => {
+    await seed();
+    const link = file('master', { name: 'CBSE syllabus', mimeType: 'text/html', size: 0, url: 'https://cbseacademic.nic.in/curriculum.html' });
+    await assertSucceeds(setDoc(doc(db('master'), 'classrooms/r1/files/l1'), link));
+    await assertFails(setDoc(doc(db('master'), 'classrooms/r1/files/l2'), { ...link, size: 10 }));
+    await assertFails(setDoc(doc(db('master'), 'classrooms/r1/files/l3'), { ...link, url: 'http://plain.example/x' }));
   });
 
   it('a private file is only its owner’s', async () => {
@@ -923,5 +1029,50 @@ describe('offers and open handovers', () => {
     await assertFails(updateDoc(k('ben'), { people: { co: 'edit', ben: 'edit' }, sharedWith: ['co', 'ben'] }));
     await assertSucceeds(updateDoc(k('ben'), { people: { co: 'edit' }, sharedWith: ['co'] }));
     await assertFails(getDoc(k('ben')));
+  });
+});
+
+describe('test results', () => {
+  const result = (extra = {}) => ({
+    classroomId: 'r1',
+    label: 'Practice: Waves',
+    targetId: 's1',
+    right: 4,
+    total: 6,
+    mock: false,
+    missed: ['What is a wavelength?'],
+    at: new Date('2026-11-11T08:00:00Z'),
+    ...extra,
+  });
+  const at = (uid, owner = uid, id = 'x1') => doc(db(uid), `users/${owner}/results/${id}`);
+
+  it('are saved, read and removed only by the person who took the test', async () => {
+    await seed();
+    await assertSucceeds(setDoc(at('amy'), result()));
+    await assertSucceeds(getDoc(at('amy')));
+    await assertSucceeds(getDocs(collection(db('amy'), 'users/amy/results')));
+    // Nobody else, not even someone in the same classroom.
+    await assertFails(getDoc(at('ben', 'amy')));
+    await assertFails(getDocs(collection(db('ben'), 'users/amy/results')));
+    await assertFails(setDoc(at('ben', 'amy', 'x2'), result()));
+    await assertFails(deleteDoc(at('ben', 'amy')));
+    await assertSucceeds(deleteDoc(at('amy')));
+  });
+
+  it('must add up, stay small, and never change afterwards', async () => {
+    await seed();
+    await assertFails(setDoc(at('amy'), result({ right: 7 })));
+    await assertFails(setDoc(at('amy'), result({ right: -1 })));
+    await assertFails(setDoc(at('amy'), result({ total: 0, right: 0 })));
+    await assertFails(setDoc(at('amy'), result({ total: 500, right: 400 })));
+    await assertFails(setDoc(at('amy'), result({ label: 'x'.repeat(201) })));
+    await assertFails(setDoc(at('amy'), result({ missed: Array(21).fill('q') })));
+    await assertFails(setDoc(at('amy'), result({ rank: 1 })));
+    await assertFails(setDoc(at('amy'), result({ at: 'yesterday' })));
+    await assertFails(setDoc(at('amy'), result({ level: 'impossible' })));
+    await assertFails(setDoc(at('amy'), result({ interview: 'yes' })));
+    await assertSucceeds(setDoc(at('amy', 'amy', 'x3'), result({ level: 'hard', interview: true, right: 31, total: 50 })));
+    await assertSucceeds(setDoc(at('amy'), result()));
+    await assertFails(updateDoc(at('amy'), { right: 6 }));
   });
 });
